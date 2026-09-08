@@ -38,7 +38,7 @@ LQBot：跑在 EdgeOne 边缘函数上的无服务器 QQ 官方机器人。接�
 3. tsconfig 的 module 与 moduleResolution 必须同为 NodeNext。tweetnacl.js 无类型，靠 allowJs:true 被引用；**保持 vendored 原样，不要改成 .ts 或加强类型**。
 4. src/ 在 edge-functions/ 之外，但边缘构建（esbuild）会跟随相对 import 打包，已实测可用。edge-functions/ 只放对外接口。
 5. KV 是全局变量 my_kv（globalThis.my_kv），不在 context.env。任何用到 KV 的地方都做了 null 保护（未绑定则跳过持久化）。
-6. 命令处理放进 context.waitUntil，先回 { op: 12 } 200；被动回复携带事件消息 id 作 event_id（群 5 分钟 / 单聊 60 分钟窗口）。
+6. 命令处理**同步 await 后再返回** { op: 12 } 200（边缘运行时可能在返回 200 后立即冻结 isolate，waitUntil 后台跑会丢失回复与日志；被动回复窗口群 5 分钟 / 单聊 60 分钟，同步处理完全来得及）。被动回复携带**消息 id 作 msg_id**（取自 d.id，形如 ROBOT1.0_...），**不是 event_id**（event.id 是事件 id 形如 C2C_MESSAGE_CREATE:...，被动回复不认）。
 7. QQ API 返回结构（尤其群成员 role/nick）官方文档未完整开放，相关代码已做兼容，实测字段不同需校准。
 
 ## 构建 / 开发 / 部署
@@ -68,6 +68,8 @@ LQBot：跑在 EdgeOne 边缘函数上的无服务器 QQ 官方机器人。接�
 - 任何改动后跑一次 edgeone makers build 确认编译通过。
 
 ## 已知坑位 / 边界
+- getAppAccessToken 请求体字段名是 **appId**（不是 clientId）；改用 clientId 会返回 {code:100007,"appid invalid"}，即使凭证正确。当前 body 同时带 appId 与 clientId 以兼容旧文档。
+- 被动回复（发群/发单聊消息）用请求体字段 **msg_id**（值=接收到的消息 id d.id，形如 ROBOT1.0_...）。若误用 event_id 或误填顶层事件 id（C2C_MESSAGE_CREATE:...）会报 40034025「event_id 无效」或 40034027「event_id 对应事件不能回复消息」。
 - 群成员接口 GET /v2/groups/{group_openid}/members（及 role/nick 字段）官方文档未完整开放；openid.ts 的 normalizeMembers 与 permissions.ts 的 isGroupAdminRole（当前：role 含 admin/owner/群主 或 数字>=2 判群管）需按实测校准。
 - 主动消息限频（群/单聊 每月 4 条）由 QQ 侧控制；本项目优先被动回复。
 - .env 含官方文档示例密钥，仅本地签名验证用，上线请替换为真实凭证且勿提交（.gitignore 已忽略 .env 与 .edgeone）。
