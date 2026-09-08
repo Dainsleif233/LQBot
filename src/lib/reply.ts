@@ -5,12 +5,14 @@ import type { Config, Scene } from './types.js';
 
 export function createReply(cfg: Config, event: any, scene: Scene): (content: string) => Promise<void> {
   const d = (event && event.d) || {};
+  // 被动回复用 msg_id = d.id（消息 id，形如 ROBOT1.0_...），不是事件 id。
   const messageId = d.id || (event && event.id) || '';
   if (scene === 'group') {
     const groupOpenid = d.group_openid || '';
     return async function reply(content: string): Promise<void> {
       if (!groupOpenid) throw new Error('缺少 group_openid，无法回复');
-      return qq.sendGroupMessage(cfg, groupOpenid, content, messageId);
+      // 群聊回复开头加一个换行，与 @ 上下文分隔
+      return qq.sendGroupMessage(cfg, groupOpenid, '\n' + content, messageId);
     };
   }
   // private
