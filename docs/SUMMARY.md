@@ -19,7 +19,7 @@ LQBot —— Serverless QQ 官方机器人（EdgeOne 边缘函数）会话总结
 ============================================================
 LQBot/
   edge-functions/            # 仅对外暴露的接口
-    api/webhook.ts           # POST /api/webhook 入口（onRequest）
+    webhook.ts                # POST /webhook 入口（onRequest）
   src/                       # 所有内部模块（被边缘构建打包进函数）
     lib/
       config.ts              # 从 env 构建运行时配置
@@ -157,7 +157,7 @@ LQBot/
 4. 部署：
    PAGES_SOURCE=skills edgeone makers deploy -n LQBot
 5. QQ 开放平台「开发设置 → 回调地址」填写：
-   https://<你的边缘函数域名>/api/webhook
+   https://<你的边缘函数域名>/webhook
    平台先发 op=13 地址校验，本服务自动签名通过。
 
 ============================================================
@@ -175,5 +175,5 @@ LQBot/
 - 实现权限系统、命令系统、两个内置命令（/permission、/debug）
 - vendor tweetnacl 到 src/lib/tweetnacl.js（因边缘运行时缺 Ed25519）
 - 按用户要求把内部模块从 edge-functions/{lib,commands} 迁移到 src/，
-  edge-functions 仅保留 api/webhook.ts；同步更新 README 目录树与「新增命令」指引
+  edge-functions 仅保留 webhook.ts；同步更新 README 目录树与「新增命令」指引
 - 全程未执行 git commit / push（需用户明确授权）
