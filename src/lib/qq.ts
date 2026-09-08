@@ -1,10 +1,10 @@
 // QQ OpenAPI 客户端：换取 access_token、发送群/单聊消息、查询群成员。
 // access_token 缓存在 KV（避免频繁换取，token 有效期通常 7200s）。
+import type { Config, MemberInfo } from './types.js';
 
 const TOKEN_KEY = 'bot:app_access_token';
 
-export async function getAccessToken(cfg) {
-  // 1. 先尝试 KV 缓存
+export async function getAccessToken(cfg: Config): Promise<string> {
   if (cfg.kv) {
     try {
       const cached = await cfg.kv.get(TOKEN_KEY, 'json');
@@ -14,14 +14,13 @@ export async function getAccessToken(cfg) {
     } catch (_) { /* 缓存不存在或损坏，忽略 */ }
   }
 
-  // 2. 调用 https://bots.qq.com/app/getAppAccessToken
   const resp = await fetch('https://bots.qq.com/app/getAppAccessToken', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ clientId: cfg.appId, clientSecret: cfg.appSecret }),
   });
   const text = await resp.text();
-  let data;
+  let data: any = {};
   try { data = JSON.parse(text); } catch (_) { data = {}; }
   if (!data.access_token) {
     throw new Error('getAppAccessToken 失败: ' + text);
@@ -29,7 +28,6 @@ export async function getAccessToken(cfg) {
   const token = data.access_token;
   const expiresIn = Number(data.expires_in) || 7200;
 
-  // 3. 写回 KV 缓存（留 60s 安全余量）
   if (cfg.kv) {
     try {
       await cfg.kv.put(TOKEN_KEY, JSON.stringify({ access_token: token, expire_at: Date.now() + expiresIn * 1000 }));
@@ -38,7 +36,7 @@ export async function getAccessToken(cfg) {
   return token;
 }
 
-async function apiCall(cfg, method, path, body) {
+async function apiCall(cfg: Config, method: string, path: string, body?: unknown): Promise<any> {
   const token = await getAccessToken(cfg);
   const resp = await fetch(cfg.apiBase + path, {
     method,
@@ -49,7 +47,7 @@ async function apiCall(cfg, method, path, body) {
     body: body ? JSON.stringify(body) : undefined,
   });
   const text = await resp.text();
-  let data;
+  let data: any = text;
   try { data = JSON.parse(text); } catch (_) { data = text; }
   if (!resp.ok) {
     throw new Error('QQ API ' + method + ' ' + path + ' -> ' + resp.status + ': ' + text);
@@ -58,27 +56,28 @@ async function apiCall(cfg, method, path, body) {
 }
 
 // 发送群消息（被动回复：传入事件消息 id 作为 event_id）
-export async function sendGroupMessage(cfg, groupOpenid, content, eventId) {
-  const body = { content, msg_type: 0 };
+export async function sendGroupMessage(cfg: Config, groupOpenid: string, content: string, eventId?: string): Promise<any> {
+  const body: { content: string; msg_type: number; event_id?: string } = { content, msg_type: 0 };
   if (eventId) body.event_id = eventId;
   return apiCall(cfg, 'POST', '/v2/groups/' + encodeURIComponent(groupOpenid) + '/messages', body);
 }
 
 // 发送单聊消息（被动回复：传入事件消息 id 作为 event_id）
-export async function sendC2CMessage(cfg, userOpenid, content, eventId) {
-  const body = { content, msg_type: 0 };
+export async function sendC2CMessage(cfg: Config, userOpenid: string, content: string, eventId?: string): Promise<any> {
+  const body: { content: string; msg_type: number; event_id?: string } = { content, msg_type: 0 };
   if (eventId) body.event_id = eventId;
   return apiCall(cfg, 'POST', '/v2/users/' + encodeURIComponent(userOpenid) + '/messages', body);
 }
 
 // 获取群内单个成员详情：{ member_openid, user_openid, nick, role, ... }
-export async function getGroupMember(cfg, groupOpenid, memberOpenid) {
-  return apiCall(cfg, 'GET',
+export async function getGroupMember(cfg: Config, groupOpenid: string, memberOpenid: string): Promise<MemberInfo | null> {
+  const data = await apiCall(cfg, 'GET',
     '/v2/groups/' + encodeURIComponent(groupOpenid) + '/members/' + encodeURIComponent(memberOpenid));
+  return (data as MemberInfo) || null;
 }
 
 // 获取群成员列表（分页）。返回原始响应，由调用方兼容处理字段。
-export async function listGroupMembers(cfg, groupOpenid, limit, after) {
+export async function listGroupMembers(cfg: Config, groupOpenid: string, limit?: number, after?: string): Promise<any> {
   const q = new URLSearchParams();
   if (limit) q.set('limit', String(limit));
   if (after) q.set('after', String(after));

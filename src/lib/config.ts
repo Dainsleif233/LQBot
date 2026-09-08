@@ -1,7 +1,8 @@
 // 运行时配置：从环境变量构建（每次请求重建，因为 env 是 per-request 的）
 // 注意：my_kv 是 EdgeOne 绑定后的全局变量，不在 env 里，这里通过 globalThis 安全获取。
+import type { Config } from './types.js';
 
-export function createConfig(env) {
+export function createConfig(env: Record<string, string | undefined> | undefined): Config {
   env = env || {};
   return {
     // QQ 机器人 AppID / AppSecret（用于换取 access_token 与 webhook 签名）
@@ -18,7 +19,6 @@ export function createConfig(env) {
     verifyEventSignature: env.VERIFY_EVENT_SIGNATURE === 'true',
 
     // 群聊场景是否调用成员接口检测真实群管身份（默认开）。
-    // 关闭时群聊场景一律按 groupSceneLevel 返回（见下）。
     checkGroupAdmin: env.CHECK_GROUP_ADMIN !== 'false',
 
     // 群聊场景的默认等级（"群聊管理员"场景值），默认 1。
@@ -27,6 +27,8 @@ export function createConfig(env) {
       : 1,
 
     // KV 命名空间（绑定后才有）。未绑定则为 null，持久化相关功能会被跳过。
-    kv: (typeof globalThis !== 'undefined' && globalThis.my_kv) ? globalThis.my_kv : null,
+    kv: (typeof globalThis !== 'undefined' && (globalThis as any).my_kv)
+      ? (globalThis as any).my_kv
+      : null,
   };
 }

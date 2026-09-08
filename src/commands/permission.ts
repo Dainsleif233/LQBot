@@ -1,18 +1,15 @@
 // /permission —— 权限管理命令
 // 群聊 at 与私聊场景均可；权限要求 3（超级管理员）。
-// 用法：
-//   /permission              -> 返回当前用户场景权限
-//   /permission <user_openid> -> 返回目标用户当前场景权限（含 KV 覆盖值）
-//   /permission <user_openid> <int> -> 设置目标用户权限等级(0-3)
 import { resolveLevel, LEVELS, levelName } from '../lib/permissions.js';
+import type { Command, CommandContext, Scene } from '../lib/types.js';
 
 export const name = 'permission';
-export const aliases = [];
+export const aliases: string[] = [];
 export const description = '权限管理：查询或设置用户权限（等级 0-3）';
-export const scenes = ['group', 'private'];
+export const scenes: Scene[] = ['group', 'private'];
 export const minLevel = LEVELS.SUPER_ADMIN; // 3
 
-export async function handler(ctx) {
+export async function handler(ctx: CommandContext): Promise<void> {
   const { args, cfg, reply, level, scene, groupOpenid, memberOpenid } = ctx;
   const target = args[0];
   const value = args[1];
@@ -29,7 +26,7 @@ export async function handler(ctx) {
       await reply('KV 未绑定，无法查询存储的权限；返回场景默认。');
       return;
     }
-    let stored = null;
+    let stored: string | null = null;
     try {
       stored = await cfg.kv.get('perm:' + target);
     } catch (_) {}
@@ -57,9 +54,11 @@ export async function handler(ctx) {
   try {
     await cfg.kv.put('perm:' + target, String(n));
   } catch (e) {
-    await reply('写入 KV 失败：' + e.message);
+    await reply('写入 KV 失败：' + (e as Error).message);
     return;
   }
   await reply('已将用户 ' + target + ' 的权限设置为：' + n + '（' + levelName(n) + '）');
 }
-export default { name, aliases, description, scenes, minLevel, handler };
+
+const cmd: Command = { name, aliases, description, scenes, minLevel, handler };
+export default cmd;

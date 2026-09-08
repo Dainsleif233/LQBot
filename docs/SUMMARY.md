@@ -19,21 +19,21 @@ LQBot —— Serverless QQ 官方机器人（EdgeOne 边缘函数）会话总结
 ============================================================
 LQBot/
   edge-functions/            # 仅对外暴露的接口
-    api/webhook.js           # POST /api/webhook 入口（onRequest）
+    api/webhook.ts           # POST /api/webhook 入口（onRequest）
   src/                       # 所有内部模块（被边缘构建打包进函数）
     lib/
-      config.js              # 从 env 构建运行时配置
-      crypto.js             # Ed25519 签名/验签（基于 tweetnacl）
+      config.ts              # 从 env 构建运行时配置
+      crypto.ts             # Ed25519 签名/验签（基于 tweetnacl）
       tweetnacl.js          # vendored 纯 JS Ed25519（已去掉 require('crypto')）
-      qq.js                 # QQ OpenAPI 客户端（token/发群/发私聊/查成员）
-      permissions.js         # 权限解析 3>2>1>0
-      registry.js            # 命令注册 + 解析 + 别名
-      reply.js               # 按场景构造被动回复
-      handler.js             # 验签/地址校验/事件分发/去重/权限/执行/兜底
+      qq.ts                 # QQ OpenAPI 客户端（token/发群/发私聊/查成员）
+      permissions.ts         # 权限解析 3>2>1>0
+      registry.ts            # 命令注册 + 解析 + 别名
+      reply.ts               # 按场景构造被动回复
+      handler.ts             # 验签/地址校验/事件分发/去重/权限/执行/兜底
     commands/
-      permission.js          # /permission [openid] [int]   群+私聊  level 3
-      openid.js              # /openid <昵称>                仅群聊    level 3
-      test.js                # /test [args]                 群+私聊  level 0
+      permission.ts          # /permission [openid] [int]   群+私聊  level 3
+      openid.ts              # /openid <昵称>                仅群聊    level 3
+      test.ts                # /test [args]                 群+私聊  level 0
   .env.example
   package.json
   README.md
@@ -64,7 +64,7 @@ LQBot/
    实测 edge-functions 内及 src/ 内的相对 import 都会被正确内联进产物。
 
 4) KV 是全局变量 my_kv（不在 context.env）
-   config.js 通过 globalThis.my_kv 获取；任何使用 KV 的地方都做了 null 保护。
+   config.ts 通过 globalThis.my_kv 获取；任何使用 KV 的地方都做了 null 保护。
 
 5) 命令处理放 waitUntil，先回 200 ACK(op=12)
    被动回复窗口（群 5 分钟 / 单聊 60 分钟）足够；先回 200 保证 QQ 投递成功。
@@ -97,7 +97,7 @@ LQBot/
   name / aliases / description / scenes(['group','private']) / minLevel / handler(ctx)
 - 权限：由各 handler 用挡位比较（level >= minLevel 通过；否则拒绝回复）。
 - 反馈：按场景自动发到群（群聊）或私聊（单聊），被动回复携带事件消息 id 作 event_id。
-- 新增命令：在 src/commands/ 建模块（含 export default {...}），并在 src/lib/registry.js
+- 新增命令：在 src/commands/ 建模块（含 export default {...}），并在 src/lib/registry.ts
   的 commands 数组里 import。
 
 ============================================================
@@ -168,8 +168,8 @@ LQBot/
 十、待确认假设 / 边界
 ============================================================
 - 群成员接口返回结构（role / nick 字段）官方文档未完整开放，代码已做兼容：
-  若实测字段不同，需调整 src/commands/openid.js 的 normalizeMembers 与
-  src/lib/permissions.js 的 isGroupAdminRole（当前：role 含 admin/owner/群主 或 数字>=2 判为群管）。
+  若实测字段不同，需调整 src/commands/openid.ts 的 normalizeMembers 与
+  src/lib/permissions.ts 的 isGroupAdminRole（当前：role 含 admin/owner/群主 或 数字>=2 判为群管）。
 - 主动消息限频（群/单聊 每月 4 条）由 QQ 侧控制；本项目优先使用被动回复。
 - 当前 .env 中的 APP_SECRET 为官方文档示例密钥（仅用于本地签名验证），上线请替换为真实凭证。
 
@@ -180,5 +180,5 @@ LQBot/
 - 实现权限系统、命令系统、三个内置命令
 - vendor tweetnacl 到 src/lib/tweetnacl.js（因边缘运行时缺 Ed25519）
 - 按用户要求把内部模块从 edge-functions/{lib,commands} 迁移到 src/，
-  edge-functions 仅保留 api/webhook.js；同步更新 README 目录树与「新增命令」指引
+  edge-functions 仅保留 api/webhook.ts；同步更新 README 目录树与「新增命令」指引
 - 全程未执行 git commit / push（需用户明确授权）

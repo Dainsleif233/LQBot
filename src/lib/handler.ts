@@ -5,19 +5,20 @@ import { resolveLevel, LEVELS } from './permissions.js';
 import { parseCommand, findCommand } from './registry.js';
 import { createReply } from './reply.js';
 import * as qq from './qq.js';
+import type { CommandContext, Config, EdgeContext, MemberInfo, Scene } from './types.js';
 
-const jsonHeaders = { 'Content-Type': 'application/json' };
+const jsonHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
 
-export async function handleWebhook(context) {
-  const { request } = context;
-  const cfg = createConfig(context.env);
+export async function handleWebhook(context: EdgeContext): Promise<Response> {
+  const { request, env, waitUntil } = context;
+  const cfg = createConfig(env);
   const method = request.method || 'GET';
   if (method !== 'POST') {
     return new Response(JSON.stringify({ error: 'method not allowed' }), { status: 405, headers: jsonHeaders });
   }
 
   const rawBody = await request.text();
-  let payload;
+  let payload: any;
   try { payload = JSON.parse(rawBody); } catch (_) {
     return new Response(JSON.stringify({ error: 'invalid json' }), { status: 400, headers: jsonHeaders });
   }
@@ -38,10 +39,10 @@ export async function handleWebhook(context) {
       if (!ok) return new Response(JSON.stringify({ error: 'invalid signature' }), { status: 401, headers: jsonHeaders });
     }
     // 尽快回 200 ACK，命令处理放到 waitUntil（被动回复窗口足够）。
-    if (context.waitUntil) {
-      context.waitUntil(processEvent(cfg, payload).catch(e => console.error('[LQBot] processEvent error:', e)));
+    if (typeof waitUntil === 'function') {
+      waitUntil(processEvent(cfg, payload).catch((e: unknown) => console.error('[LQBot] processEvent error:', e)));
     } else {
-      processEvent(cfg, payload).catch(e => console.error('[LQBot] processEvent error:', e));
+      processEvent(cfg, payload).catch((e: unknown) => console.error('[LQBot] processEvent error:', e));
     }
     return new Response(JSON.stringify({ op: 12 }), { status: 200, headers: jsonHeaders });
   }
@@ -50,7 +51,7 @@ export async function handleWebhook(context) {
   return new Response(JSON.stringify({ op: 12 }), { status: 200, headers: jsonHeaders });
 }
 
-async function handleVerification(cfg, payload) {
+async function handleVerification(cfg: Config, payload: any): Promise<Response> {
   const d = payload.d || {};
   const plainToken = d.plain_token;
   const eventTs = d.event_ts;
@@ -64,17 +65,17 @@ async function handleVerification(cfg, payload) {
     const signature = await signWebhookChallenge(cfg.appSecret, plainToken, eventTs);
     return new Response(JSON.stringify({ plain_token: plainToken, signature }), { status: 200, headers: jsonHeaders });
   } catch (e) {
-    return new Response(JSON.stringify({ error: '签名失败: ' + e.message }), { status: 500, headers: jsonHeaders });
+    return new Response(JSON.stringify({ error: '签名失败: ' + (e as Error).message }), { status: 500, headers: jsonHeaders });
   }
 }
 
-async function processEvent(cfg, payload) {
+async function processEvent(cfg: Config, payload: any): Promise<void> {
   const t = payload.t;
   if (t !== 'GROUP_AT_MESSAGE_CREATE' && t !== 'C2C_MESSAGE_CREATE') return;
 
   const event = payload;
   const d = event.d || {};
-  const scene = t === 'C2C_MESSAGE_CREATE' ? 'private' : 'group';
+  const scene: Scene = t === 'C2C_MESSAGE_CREATE' ? 'private' : 'group';
   const messageId = d.id || event.id || '';
 
   // 去重：QQ 可能重复投递同一 msg_id，用 KV 记录已处理（10 分钟窗口手动过期）。
@@ -90,11 +91,11 @@ async function processEvent(cfg, payload) {
   }
 
   // 解析发送者身份
-  let userOpenid = null;
-  let memberOpenid = null;
-  let groupOpenid = null;
+  let userOpenid: string | null = null;
+  let memberOpenid: string | null = null;
+  let groupOpenid: string | null = null;
   let nick = '';
-  let memberInfo = null;
+  let memberInfo: MemberInfo | null = null;
 
   if (scene === 'private') {
     userOpenid = d.author && d.author.user_openid;
@@ -108,7 +109,7 @@ async function processEvent(cfg, payload) {
         userOpenid = memberInfo.user_openid || userOpenid;
         nick = memberInfo.nick || '';
       } catch (e) {
-        console.error('[LQBot] getGroupMember failed:', e.message);
+        console.error('[LQBot] getGroupMember failed:', (e as Error).message);
         userOpenid = userOpenid || memberOpenid; // 回落到群内 id
       }
     }
@@ -127,7 +128,7 @@ async function processEvent(cfg, payload) {
   const level = await resolveLevel(cfg, { scene, userOpenid, groupOpenid, memberOpenid, memberInfo });
 
   const reply = createReply(cfg, event, scene);
-  const ctx = {
+  const ctx: CommandContext = {
     name: parsed.name,
     args: parsed.args,
     raw: parsed.raw,
@@ -152,7 +153,7 @@ async function processEvent(cfg, payload) {
 
   // 权限检查（挡位进阶：level >= minLevel 即通过）
   if (level < cmd.minLevel) {
-    try { await ctx.deny(); } catch (e) { console.error('[LQBot] deny reply failed:', e.message); }
+    try { await ctx.deny(); } catch (e) { console.error('[LQBot] deny reply failed:', (e as Error).message); }
     return;
   }
 
@@ -160,11 +161,11 @@ async function processEvent(cfg, payload) {
     await cmd.handler(ctx);
   } catch (e) {
     console.error('[LQBot] command handler error:', e);
-    try { await reply('命令执行出错：' + e.message); } catch (_) {}
+    try { await reply('命令执行出错：' + (e as Error).message); } catch (_) {}
   }
 }
 
-function levelNameSafe(n) {
-  const map = { 3: '超级管理员', 2: '全局管理员', 1: '群聊管理员', 0: '普通用户' };
+function levelNameSafe(n: number): string {
+  const map: Record<number, string> = { 3: '超级管理员', 2: '全局管理员', 1: '群聊管理员', 0: '普通用户' };
   return map[n] || String(n);
 }

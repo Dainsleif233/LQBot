@@ -13,21 +13,21 @@
 
     LQBot/
       edge-functions/            # 仅对外暴露的接口
-        api/webhook.js       入口：POST /api/webhook
+        api/webhook.ts       入口：POST /api/webhook
       src/                     # 全部内部模块（由边缘构建打包进函数）
         lib/
-          config.js           从环境变量构建运行时配置
-          crypto.js           Webhook 的 Ed25519 签名/验签（地址校验 + 事件校验）
+          config.ts           从环境变量构建运行时配置
+          crypto.ts           Webhook 的 Ed25519 签名/验签（地址校验 + 事件校验）
           tweetnacl.js        vendored 纯 JS Ed25519（边缘运行时缺 WebCrypto Ed25519）
-          qq.js               QQ OpenAPI 客户端（token / 发消息 / 群成员）
-          permissions.js      权限解析（3>2>1>0，挡位进阶）
-          registry.js         命令注册与解析
-          reply.js            按场景回复（群聊 / 私聊）
-          handler.js          Webhook 主逻辑（验签 / 分发 / 执行）
+          qq.ts               QQ OpenAPI 客户端（token / 发消息 / 群成员）
+          permissions.ts      权限解析（3>2>1>0，挡位进阶）
+          registry.ts         命令注册与解析
+          reply.ts            按场景回复（群聊 / 私聊）
+          handler.ts          Webhook 主逻辑（验签 / 分发 / 执行）
         commands/
-          permission.js       /permission  权限管理（等级 3）
-          openid.js           /openid      按昵称查 openid（等级 3，仅群聊）
-          test.js             /test        测试命令（等级 0）
+          permission.ts       /permission  权限管理（等级 3）
+          openid.ts           /openid      按昵称查 openid（等级 3，仅群聊）
+          test.ts             /test        测试命令（等级 0）
       .env.example
       package.json
       README.md
@@ -92,7 +92,7 @@
 
 ## 新增命令
 
-在 src/commands/ 下新建模块，导出下列字段，再 import 到 src/lib/registry.js 的
+在 src/commands/ 下新建模块，导出下列字段，再 import 到 src/lib/registry.ts 的
 commands 数组：
 
     import { LEVELS } from '../lib/permissions.js';
@@ -110,7 +110,7 @@ commands 数组：
 
 - 群成员接口：GET /v2/groups/{group_openid}/members 的返回结构（尤其 role / nick
   字段）官方未完整文档化。代码已做兼容；若实测字段不同，调整
-  commands/openid.js 的 normalizeMembers 与 lib/permissions.js 的 isGroupAdminRole。
+  commands/openid.ts 的 normalizeMembers 与 lib/permissions.ts 的 isGroupAdminRole。
 - 被动回复窗口：群 5 分钟、私聊 60 分钟；超出后只能用主动消息（每月配额）。
 - Ed25519：Webhook 签名依赖 Ed25519，但边缘运行时的 WebCrypto 不支持该算法
   （实测 importKey/sign 均报 Param Invalid），因此项目 vendored 了纯 JS 的
