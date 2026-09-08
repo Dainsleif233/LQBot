@@ -4,7 +4,7 @@ import { resolveLevel, LEVELS, levelName } from '../lib/permissions.js';
 import type { Command, CommandContext, Scene } from '../lib/types.js';
 
 export const name = 'permission';
-export const aliases: string[] = [];
+export const aliases: string[] = ['perm']; // 别名 /perm
 export const description = '权限管理：查询或设置用户权限（等级 0-3）';
 export const scenes: Scene[] = ['group', 'private'];
 export const minLevel = LEVELS.SUPER_ADMIN; // 3
