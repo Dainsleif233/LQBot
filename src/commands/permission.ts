@@ -32,7 +32,7 @@ export async function handler(ctx: CommandContext): Promise<void> {
       return;
     }
     // 无存储值 -> 场景默认
-    const resolved = await resolveLevel(cfg, { scene, userOpenid: target, groupOpenid, memberOpenid });
+    const resolved = await resolveLevel(cfg, { scene, userOpenid: target, groupOpenid, memberOpenid, memberInfo: null });
     await reply('用户 ' + target + ' 当前场景权限为：' + resolved + '（' + levelName(resolved) + '，未单独设置）');
     return;
   }
