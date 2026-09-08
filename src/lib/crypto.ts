@@ -5,19 +5,16 @@
 //   - 事件校验：      msg = timestamp + rawBody，     与 X-Signature-Ed25519 比对。
 // 种子派生（与官方 Go 示例一致）：把 secret 重复拼接直到 >=32 字节，再截断到 32 字节。
 import { nacl } from './tweetnacl.js';
-
 function deriveSeed(secret: string): Uint8Array {
   let seed = String(secret);
   while (seed.length < 32) seed += secret;
   return new TextEncoder().encode(seed).slice(0, 32);
 }
-
 function bytesToHex(bytes: Uint8Array): string {
   let s = '';
   for (let i = 0; i < bytes.length; i++) s += bytes[i].toString(16).padStart(2, '0');
   return s;
 }
-
 // 用 botSecret 派生的 Ed25519 私钥对 messageBytes 签名（确定性，与 Go ed25519.NewKeyFromSeed 一致）。
 function ed25519SignHex(secret: string, messageBytes: Uint8Array): string {
   const seed = deriveSeed(secret);
@@ -25,13 +22,11 @@ function ed25519SignHex(secret: string, messageBytes: Uint8Array): string {
   const sig = nacl.sign.detached(messageBytes, kp.secretKey);
   return bytesToHex(sig);
 }
-
 // 地址校验响应签名：msg = event_ts + plain_token
 export async function signWebhookChallenge(secret: string, plainToken: string, eventTs: string | number): Promise<string> {
   const msg = new TextEncoder().encode(String(eventTs) + String(plainToken));
   return ed25519SignHex(secret, msg);
 }
-
 // 事件签名校验：msg = timestamp + rawBody
 // Ed25519(RFC8032) 确定性，重签并比对等价于用公钥验签，且绕开运行时导出公钥的兼容问题。
 export async function verifyWebhookSignature(secret: string, timestamp: string, rawBody: string, signatureHex: string | null | undefined): Promise<boolean> {

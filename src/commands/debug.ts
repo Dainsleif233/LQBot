@@ -3,13 +3,11 @@
 // 返回：原消息、参数、参数数量、用户 openid、用户权限、用户昵称。
 import { levelName } from '../lib/permissions.js';
 import type { Command, CommandContext, Scene } from '../lib/types.js';
-
 export const name = 'debug';
 export const aliases: string[] = ['test'];
 export const description = '测试命令：回显消息与调用者信息';
 export const scenes: Scene[] = ['group', 'private'];
 export const minLevel = 0;
-
 export async function handler(ctx: CommandContext): Promise<void> {
   const { args, raw, original, userOpenid, level, nick, scene } = ctx;
   const lines = [
@@ -23,6 +21,5 @@ export async function handler(ctx: CommandContext): Promise<void> {
   ];
   await ctx.reply(lines.join('\n'));
 }
-
 const cmd: Command = { name, aliases, description, scenes, minLevel, handler };
 export default cmd;

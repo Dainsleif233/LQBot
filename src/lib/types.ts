@@ -1,10 +1,8 @@
 export type Scene = 'group' | 'private';
-
 export interface KVLike {
   get(key: string, type?: string): Promise<any>;
   put(key: string, value: string): Promise<void>;
 }
-
 export interface Config {
   appId: string;
   appSecret: string;
@@ -15,7 +13,6 @@ export interface Config {
   groupSceneLevel: number;
   kv: KVLike | null;
 }
-
 export interface MemberInfo {
   user_openid?: string;
   member_openid?: string;
@@ -23,7 +20,6 @@ export interface MemberInfo {
   role?: unknown;
   [key: string]: unknown;
 }
-
 export interface CommandContext {
   name: string;
   args: string[];
@@ -43,7 +39,6 @@ export interface CommandContext {
   reply: (content: string) => Promise<void>;
   deny: () => Promise<void>;
 }
-
 export interface Command {
   name: string;
   aliases: string[];
@@ -52,7 +47,6 @@ export interface Command {
   minLevel: number;
   handler: (ctx: CommandContext) => Promise<void>;
 }
-
 export interface QqApi {
   getAccessToken: (cfg: Config) => Promise<string>;
   sendGroupMessage: (cfg: Config, groupOpenid: string, content: string, eventId?: string) => Promise<any>;
@@ -60,7 +54,6 @@ export interface QqApi {
   getGroupMember: (cfg: Config, groupOpenid: string, memberOpenid: string) => Promise<MemberInfo | null>;
   listGroupMembers: (cfg: Config, groupOpenid: string, limit?: number, after?: string) => Promise<any>;
 }
-
 export interface EdgeContext {
   request: Request;
   env?: Record<string, string | undefined>;

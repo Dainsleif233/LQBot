@@ -2,24 +2,20 @@
 // 群聊 at 与私聊场景均可；权限要求 3（超级管理员）。
 import { resolveLevel, LEVELS, levelName } from '../lib/permissions.js';
 import type { Command, CommandContext, Scene } from '../lib/types.js';
-
 export const name = 'permission';
 export const aliases: string[] = ['perm']; // 别名 /perm
 export const description = '权限管理：查询或设置用户权限（等级 0-3）';
 export const scenes: Scene[] = ['group', 'private'];
 export const minLevel = LEVELS.SUPER_ADMIN; // 3
-
 export async function handler(ctx: CommandContext): Promise<void> {
   const { args, cfg, reply, level, scene, groupOpenid, memberOpenid } = ctx;
   const target = args[0];
   const value = args[1];
-
   // 无参数：返回当前用户场景权限
   if (!target) {
     await reply('你当前的权限等级为：' + level + '（' + levelName(level) + '）');
     return;
   }
-
   // 查询目标用户
   if (value === undefined) {
     if (!cfg.kv) {
@@ -40,7 +36,6 @@ export async function handler(ctx: CommandContext): Promise<void> {
     await reply('用户 ' + target + ' 当前场景权限为：' + resolved + '（' + levelName(resolved) + '，未单独设置）');
     return;
   }
-
   // 设置目标用户权限
   const n = parseInt(value, 10);
   if (Number.isNaN(n) || n < 0 || n > 3) {
@@ -59,6 +54,5 @@ export async function handler(ctx: CommandContext): Promise<void> {
   }
   await reply('已将用户 ' + target + ' 的权限设置为：' + n + '（' + levelName(n) + '）');
 }
-
 const cmd: Command = { name, aliases, description, scenes, minLevel, handler };
 export default cmd;
