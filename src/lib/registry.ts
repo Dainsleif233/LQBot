@@ -1,11 +1,10 @@
 // 命令系统：注册内置命令、解析 /<command> [args]、查找命令（含别名）。
 import type { Command } from './types.js';
 import permissionCmd from '../commands/permission.js';
-import openidCmd from '../commands/openid.js';
-import testCmd from '../commands/test.js';
+import debugCmd from '../commands/debug.js';
 
 // 每个命令模块导出：name, aliases?, description, scenes:['group'|'private'], minLevel, handler(ctx)
-export const commands: Command[] = [permissionCmd, openidCmd, testCmd];
+export const commands: Command[] = [permissionCmd, debugCmd];
 
 export interface ParsedCommand {
   name: string;

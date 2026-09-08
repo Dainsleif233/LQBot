@@ -26,8 +26,7 @@
           handler.ts          Webhook 主逻辑（验签 / 分发 / 执行）
         commands/
           permission.ts       /permission  权限管理（等级 3）
-          openid.ts           /openid      按昵称查 openid（等级 3，仅群聊）
-          test.ts             /test        测试命令（等级 0）
+          debug.ts            /debug       调试命令（等级 0，别名 /test）
       .env.example
       package.json
       README.md
@@ -86,8 +85,7 @@
     - 无参：  返回你当前的场景权限
     - 1 参：  返回该用户当前的场景权限（含 KV 覆盖值）
     - 2 参：  把该用户权限设为 0-3
-- /openid <昵称>  （仅群聊，等级 3）：在群成员列表中按昵称匹配，返回 openid
-- /test [args]    （群聊/私聊，等级 0）：回显原消息、参数、参数数量、用户 openid、
+- /debug [args]   （群聊/私聊，等级 0，别名 /test）：回显原消息、参数、参数数量、用户 openid、
   用户权限、用户昵称
 
 ## 新增命令
@@ -110,7 +108,7 @@ commands 数组：
 
 - 群成员接口：GET /v2/groups/{group_openid}/members 的返回结构（尤其 role / nick
   字段）官方未完整文档化。代码已做兼容；若实测字段不同，调整
-  commands/openid.ts 的 normalizeMembers 与 lib/permissions.ts 的 isGroupAdminRole。
+  lib/permissions.ts 的 isGroupAdminRole。
 - 被动回复窗口：群 5 分钟、私聊 60 分钟；超出后只能用主动消息（每月配额）。
 - Ed25519：Webhook 签名依赖 Ed25519，但边缘运行时的 WebCrypto 不支持该算法
   （实测 importKey/sign 均报 Param Invalid），因此项目 vendored 了纯 JS 的

@@ -22,8 +22,7 @@ LQBot：跑在 EdgeOne 边缘函数上的无服务器 QQ 官方机器人。接�
           types.ts              # 共享类型（Config/Command/CommandContext/...）
         commands/
           permission.ts         # /permission（别名 /perm）权限管理，level 3
-          openid.ts             # /openid 按昵称查 openid，level 3，仅群聊
-          test.ts               # /test 测试命令，level 0
+          debug.ts              # /debug 调试命令，level 0，别名 /test
       package.json
       tsconfig.json
       README.md
@@ -70,7 +69,7 @@ LQBot：跑在 EdgeOne 边缘函数上的无服务器 QQ 官方机器人。接�
 ## 已知坑位 / 边界
 - getAppAccessToken 请求体字段名是 **appId**（不是 clientId）；改用 clientId 会返回 {code:100007,"appid invalid"}，即使凭证正确。当前 body 同时带 appId 与 clientId 以兼容旧文档。
 - 被动回复（发群/发单聊消息）用请求体字段 **msg_id**（值=接收到的消息 id d.id，形如 ROBOT1.0_...）。若误用 event_id 或误填顶层事件 id（C2C_MESSAGE_CREATE:...）会报 40034025「event_id 无效」或 40034027「event_id 对应事件不能回复消息」。
-- 群成员接口 GET /v2/groups/{group_openid}/members（及 role/nick 字段）官方文档未完整开放；openid.ts 的 normalizeMembers 与 permissions.ts 的 isGroupAdminRole（当前：role 含 admin/owner/群主 或 数字>=2 判群管）需按实测校准。
+- 群成员接口 GET /v2/groups/{group_openid}/members（及 role/nick 字段）官方文档未完整开放；permissions.ts 的 isGroupAdminRole（当前：role 含 admin/owner/群主 或 数字>=2 判群管）需按实测校准。
 - 主动消息限频（群/单聊 每月 4 条）由 QQ 侧控制；本项目优先被动回复。
 - .env 含官方文档示例密钥，仅本地签名验证用，上线请替换为真实凭证且勿提交（.gitignore 已忽略 .env 与 .edgeone）。
 

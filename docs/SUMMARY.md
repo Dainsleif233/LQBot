@@ -9,7 +9,7 @@ LQBot —— Serverless QQ 官方机器人（EdgeOne 边缘函数）会话总结
 - 接收 QQ 官方服务器的 Webhook 推送（群聊 @消息、私聊消息）
 - 通过 fetch 调用 QQ OpenAPI 发送消息
 - 使用 KV 数据库持久化权限等数据
-- 内置「挡位进阶权限系统」+「插件式命令系统」+ 三个内置命令
+- 内置「挡位进阶权限系统」+「插件式命令系统」+ 两个内置命令（/permission、/debug）
 - 不考虑频道（Guild）场景
 
 项目名：LQBot（仓库目录仍为 qbot：D:/Code/jsucraft/qbot，可在本地按需重命名）。
@@ -32,8 +32,7 @@ LQBot/
       handler.ts             # 验签/地址校验/事件分发/去重/权限/执行/兜底
     commands/
       permission.ts          # /permission [openid] [int]   群+私聊  level 3
-      openid.ts              # /openid <昵称>                仅群聊    level 3
-      test.ts                # /test [args]                 群+私聊  level 0
+      debug.ts               # /debug [args]               群+私聊  level 0
   .env.example
   package.json
   README.md
@@ -108,10 +107,7 @@ LQBot/
   - 1 参：返回该用户当前场景权限（含 KV 覆盖值）
   - 2 参：把该用户权限设为 0-3（写入 KV perm:<user_openid>）
 
-/openid <用户昵称>                     仅群聊       等级 3
-  - 分页拉取群成员列表，按昵称匹配，返回其 openid（user_openid 或 member_openid）
-
-/test [args]                           群聊+私聊   等级 0
+/debug [args]                           群聊+私聊   等级 0
   - 回显：原消息、参数、参数数量、用户 openid、用户权限、用户昵称、场景
 
 ============================================================
@@ -143,7 +139,7 @@ LQBot/
      请求体 {"d":{"plain_token":"Arq0D5A61EgUu4OxUvOp","event_ts":"1725442341"},"op":13}
      返回签名 = 87befc99c42c651b3aac0278e71ada338433ae26fcb24307bdc5ad38c1adc2d01bcfcadc0842edac85e85205028a1132afe09280305f13aa6909ffc2d652c706
      与官方文档期望值 MATCH=True（证明 Ed25519 签名算法与种子派生完全正确）。
-3. POST GROUP_AT_MESSAGE_CREATE + /test a b c：
+3. POST GROUP_AT_MESSAGE_CREATE + /debug a b c：
      返回 200 ACK，日志显示命令被正确解析、尝试 getGroupMember、尝试 reply；
      仅在 getAppAccessToken 因测试用的假 APP_ID(11111111) 报 appid invalid 失败 —— 符合预期。
      （换真实 APP_ID/APP_SECRET 后即正常。）
@@ -168,8 +164,7 @@ LQBot/
 十、待确认假设 / 边界
 ============================================================
 - 群成员接口返回结构（role / nick 字段）官方文档未完整开放，代码已做兼容：
-  若实测字段不同，需调整 src/commands/openid.ts 的 normalizeMembers 与
-  src/lib/permissions.ts 的 isGroupAdminRole（当前：role 含 admin/owner/群主 或 数字>=2 判为群管）。
+  若实测字段不同，需调整 src/lib/permissions.ts 的 isGroupAdminRole（当前：role 含 admin/owner/群主 或 数字>=2 判为群管）。
 - 主动消息限频（群/单聊 每月 4 条）由 QQ 侧控制；本项目优先使用被动回复。
 - 当前 .env 中的 APP_SECRET 为官方文档示例密钥（仅用于本地签名验证），上线请替换为真实凭证。
 
@@ -177,7 +172,7 @@ LQBot/
 十一、本次会话完成的改动清单
 ============================================================
 - 初始化项目骨架：package.json、.env.example、README.md、.gitignore
-- 实现权限系统、命令系统、三个内置命令
+- 实现权限系统、命令系统、两个内置命令（/permission、/debug）
 - vendor tweetnacl 到 src/lib/tweetnacl.js（因边缘运行时缺 Ed25519）
 - 按用户要求把内部模块从 edge-functions/{lib,commands} 迁移到 src/，
   edge-functions 仅保留 api/webhook.ts；同步更新 README 目录树与「新增命令」指引
