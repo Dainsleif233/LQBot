@@ -19,30 +19,38 @@ export async function handleWebhook(context: EdgeContext): Promise<Response> {
 
   const rawBody = await request.text();
   let payload: any;
-  try { payload = JSON.parse(rawBody); } catch (_) {
+  try { payload = JSON.parse(rawBody); } catch (e) {
+    console.error('[LQBot][debug] JSON 解析失败: ' + (e as Error).message);
     return new Response(JSON.stringify({ error: 'invalid json' }), { status: 400, headers: jsonHeaders });
   }
+  console.error('[LQBot][debug] 收到请求 method=' + method + ' op=' + (payload && payload.op));
 
   // op=13：回调地址验证（必须返回签名，否则无法配置 webhook）
   if (payload && payload.op === 13) {
+    console.error('[LQBot][debug] 处理 op=13 地址校验');
     return await handleVerification(cfg, payload);
   }
 
   // op=0：事件分发
   if (payload && payload.op === 0) {
+    console.error('[LQBot][debug] op=0 事件分发, t=' + (payload.t || '') + ' d.id=' + (payload.d && payload.d.id));
     // 可选：校验每次回调签名
     if (cfg.verifyEventSignature) {
       const sig = request.headers.get('X-Signature-Ed25519');
       const ts = request.headers.get('X-Signature-Timestamp');
+      console.error('[LQBot][debug] 校验事件签名, 有sig=' + (!!sig) + ' 有ts=' + (!!ts));
       if (!sig || !ts) return new Response(JSON.stringify({ error: 'missing signature' }), { status: 401, headers: jsonHeaders });
       const ok = await verifyWebhookSignature(cfg.appSecret, ts, rawBody, sig);
+      console.error('[LQBot][debug] 事件签名校验结果=' + ok);
       if (!ok) return new Response(JSON.stringify({ error: 'invalid signature' }), { status: 401, headers: jsonHeaders });
     }
-    // 尽快回 200 ACK，命令处理放到 waitUntil（被动回复窗口足够）。
-    if (typeof waitUntil === 'function') {
-      waitUntil(processEvent(cfg, payload).catch((e: unknown) => console.error('[LQBot] processEvent error:', e)));
-    } else {
-      processEvent(cfg, payload).catch((e: unknown) => console.error('[LQBot] processEvent error:', e));
+    // 同步处理事件后再返回 200：确保被动回复真正发出、日志落盘。
+    // （边缘运行时可能在返回 200 后立即冻结 isolate，用 waitUntil 后台跑会丢失回复与日志；
+    //   被动回复窗口群 5 分钟 / 单聊 60 分钟，同步处理完全来得及。）
+    try {
+      await processEvent(cfg, payload);
+    } catch (e) {
+      console.error('[LQBot] processEvent error:', e);
     }
     return new Response(JSON.stringify({ op: 12 }), { status: 200, headers: jsonHeaders });
   }
@@ -71,12 +79,20 @@ async function handleVerification(cfg: Config, payload: any): Promise<Response> 
 
 async function processEvent(cfg: Config, payload: any): Promise<void> {
   const t = payload.t;
-  if (t !== 'GROUP_AT_MESSAGE_CREATE' && t !== 'C2C_MESSAGE_CREATE') return;
+  console.error('[LQBot][debug] processEvent 开始, t=' + (t || '') + ' d.id=' + (payload.d && payload.d.id));
+  if (t !== 'GROUP_AT_MESSAGE_CREATE' && t !== 'C2C_MESSAGE_CREATE') {
+    console.error('[LQBot][debug] 忽略事件类型: ' + (t || 'undefined'));
+    return;
+  }
 
   const event = payload;
   const d = event.d || {};
+  console.error('[LQBot][debug] d字段keys=' + JSON.stringify(Object.keys(d)) + ' d.id=' + (d && d.id) + ' event.id=' + (event && event.id));
   const scene: Scene = t === 'C2C_MESSAGE_CREATE' ? 'private' : 'group';
-  const messageId = d.id || event.id || '';
+  // 被动回复用 msg_id（= 接收到的消息 id d.id，形如 ROBOT1.0_...），不是 event_id。
+  // event.id 是事件 id（C2C_MESSAGE_CREATE:...），QQ 被动回复不认它。
+  const messageId = d.id || (event && event.id) || '';
+  console.error('[LQBot][debug] scene=' + scene + ' messageId=' + messageId);
 
   // 去重：QQ 可能重复投递同一 msg_id，用 KV 记录已处理（10 分钟窗口手动过期）。
   if (cfg.kv && messageId) {
@@ -84,7 +100,10 @@ async function processEvent(cfg: Config, payload: any): Promise<void> {
       const seen = await cfg.kv.get('seen:' + messageId);
       if (seen) {
         const ts = Number(seen);
-        if (!Number.isNaN(ts) && Date.now() - ts < 600_000) return; // 10 分钟内视为重复
+        if (!Number.isNaN(ts) && Date.now() - ts < 600_000) {
+          console.error('[LQBot][debug] 去重命中，跳过 messageId=' + messageId);
+          return; // 10 分钟内视为重复
+        }
       }
       await cfg.kv.put('seen:' + messageId, String(Date.now()));
     } catch (_) { /* KV 不可用则跳过去重 */ }
@@ -114,18 +133,23 @@ async function processEvent(cfg: Config, payload: any): Promise<void> {
       }
     }
   }
+  console.error('[LQBot][debug] 发送者: userOpenid=' + userOpenid + ' groupOpenid=' + groupOpenid + ' memberOpenid=' + memberOpenid + ' nick=' + nick + ' memberInfo=' + (memberInfo ? 'yes' : 'no'));
 
   // 解析命令
   const parsed = parseCommand(d.content);
-  if (!parsed) return;
+  console.error('[LQBot][debug] 原内容=' + JSON.stringify(d.content) + ' 解析=' + JSON.stringify(parsed));
+  if (!parsed) { console.error('[LQBot][debug] 不是命令（不以 / 开头），忽略'); return; }
   const cmd = findCommand(parsed.name);
-  if (!cmd) return; // 未知命令静默忽略
+  console.error('[LQBot][debug] 命令=' + (cmd ? cmd.name : '未找到'));
+  if (!cmd) { console.error('[LQBot][debug] 未知命令，忽略'); return; } // 未知命令静默忽略
   if (cmd.scenes && cmd.scenes.indexOf(scene) === -1) {
+    console.error('[LQBot][debug] 命令不适用于当前场景 scene=' + scene);
     return; // 该命令不适用于当前场景
   }
 
   // 解析权限
   const level = await resolveLevel(cfg, { scene, userOpenid, groupOpenid, memberOpenid, memberInfo });
+  console.error('[LQBot][debug] 权限等级=' + level + ' 命令最低等级=' + cmd.minLevel);
 
   const reply = createReply(cfg, event, scene);
   const ctx: CommandContext = {
@@ -153,15 +177,17 @@ async function processEvent(cfg: Config, payload: any): Promise<void> {
 
   // 权限检查（挡位进阶：level >= minLevel 即通过）
   if (level < cmd.minLevel) {
+    console.error('[LQBot][debug] 权限不足，发送拒绝回复');
     try { await ctx.deny(); } catch (e) { console.error('[LQBot] deny reply failed:', (e as Error).message); }
     return;
   }
 
   try {
     await cmd.handler(ctx);
+    console.error('[LQBot][debug] 命令执行完成');
   } catch (e) {
     console.error('[LQBot] command handler error:', e);
-    try { await reply('命令执行出错：' + (e as Error).message); } catch (_) {}
+    try { await reply('命令执行出错：' + (e as Error).message); console.error('[LQBot][debug] 已发送错误回复'); } catch (e2) { console.error('[LQBot] reply failed:', e2); }
   }
 }
 
