@@ -15,9 +15,9 @@ export function levelName(n: number): string {
   return LEVEL_NAMES[n] || ('未知(' + n + ')');
 }
 
-// 真实群管身份识别（可选，依赖群成员接口的 role 字段）。
-// QQ 群成员接口返回结构官方文档尚未完整开放，这里按常见形态兼容处理；
-// 如实测 role 字段不同，请按控制台返回调整本函数。
+// 真实群管身份识别：优先用群消息事件 author.member_role（owner/admin/member），
+// handler 已据此构造 memberInfo.role 传入；群成员接口(role 字段)仅作兜底。
+// 按常见形态兼容：role 含 admin|owner|管理员|群主 或 数字>=2 判群管。
 function isGroupAdminRole(role: unknown): boolean {
   if (role === undefined || role === null) return false;
   if (typeof role === 'string') return /admin|owner|管理员|群主/i.test(role);

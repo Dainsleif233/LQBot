@@ -116,22 +116,25 @@ async function processEvent(cfg: Config, payload: any): Promise<void> {
   let nick = '';
   let memberInfo: MemberInfo | null = null;
 
+  const author = d.author || {};
+
   if (scene === 'private') {
-    userOpenid = d.author && d.author.user_openid;
+    userOpenid = author.user_openid || author.id || '';
+    // C2C 消息事件的 username 通常为空（QQ 出于隐私不在私聊事件提供昵称），尽力取常见字段。
+    nick = author.username || author.nick || author.nickname || author.user_name || '';
   } else {
     groupOpenid = d.group_openid;
-    memberOpenid = d.author && d.author.member_openid;
-    // 群成员事件只给 member_openid，需要查成员接口拿到稳定的 user_openid 与昵称
-    if (groupOpenid && memberOpenid) {
-      try {
-        memberInfo = await qq.getGroupMember(cfg, groupOpenid, memberOpenid);
-        userOpenid = memberInfo.user_openid || userOpenid;
-        nick = memberInfo.nick || '';
-      } catch (e) {
-        console.error('[LQBot] getGroupMember failed:', (e as Error).message);
-        userOpenid = userOpenid || memberOpenid; // 回落到群内 id
-      }
-    }
+    memberOpenid = author.member_openid || '';
+    // 群消息事件的 author 自带 username(昵称) 与 member_role(角色)，无需调群成员接口
+    // （该接口需「群成员」权限，未开通会返回 11253 应用无接口访问权限）。
+    nick = author.username || author.nick || '';
+    memberInfo = {
+      user_openid: author.user_openid || memberOpenid || undefined,
+      member_openid: memberOpenid || undefined,
+      nick,
+      role: author.member_role,
+    };
+    userOpenid = author.user_openid || memberOpenid || userOpenid;
   }
   console.error('[LQBot][debug] 发送者: userOpenid=' + userOpenid + ' groupOpenid=' + groupOpenid + ' memberOpenid=' + memberOpenid + ' nick=' + nick + ' memberInfo=' + (memberInfo ? 'yes' : 'no'));
 
