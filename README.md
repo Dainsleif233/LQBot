@@ -1,4 +1,4 @@
-# qbot - Serverless QQ Official Bot (EdgeOne Edge Functions)
+# LQBot - Serverless QQ Official Bot (EdgeOne Edge Functions)
 
 A QQ official bot service running on EdgeOne edge functions:
 
@@ -11,7 +11,7 @@ Channel (Guild) scenarios are not considered.
 
 ## Directory layout
 
-    qbot/
+    LQBot/
       edge-functions/            # only the public interface
         api/webhook.js        entry: POST /api/webhook
       src/                     # all internal modules (bundled by the edge build)
@@ -45,12 +45,12 @@ Channel (Guild) scenarios are not considered.
 3. Local dev
 
     npm install -g edgeone
-    PAGES_SOURCE=skills edgeone makers dev -n qbot
+    PAGES_SOURCE=skills edgeone makers dev -n LQBot
     # open http://127.0.0.1:8088/
 
 4. Deploy
 
-    PAGES_SOURCE=skills edgeone makers deploy -n qbot
+    PAGES_SOURCE=skills edgeone makers deploy -n LQBot
 
 5. Configure QQ Webhook
    - In QQ open platform "开发设置 -> 回调地址", set: https://<your-edge-domain>/api/webhook

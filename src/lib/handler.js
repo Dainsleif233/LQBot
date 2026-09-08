@@ -39,9 +39,9 @@ export async function handleWebhook(context) {
     }
     // 尽快回 200 ACK，命令处理放到 waitUntil（被动回复窗口足够）。
     if (context.waitUntil) {
-      context.waitUntil(processEvent(cfg, payload).catch(e => console.error('[qbot] processEvent error:', e)));
+      context.waitUntil(processEvent(cfg, payload).catch(e => console.error('[LQBot] processEvent error:', e)));
     } else {
-      processEvent(cfg, payload).catch(e => console.error('[qbot] processEvent error:', e));
+      processEvent(cfg, payload).catch(e => console.error('[LQBot] processEvent error:', e));
     }
     return new Response(JSON.stringify({ op: 12 }), { status: 200, headers: jsonHeaders });
   }
@@ -108,7 +108,7 @@ async function processEvent(cfg, payload) {
         userOpenid = memberInfo.user_openid || userOpenid;
         nick = memberInfo.nick || '';
       } catch (e) {
-        console.error('[qbot] getGroupMember failed:', e.message);
+        console.error('[LQBot] getGroupMember failed:', e.message);
         userOpenid = userOpenid || memberOpenid; // 回落到群内 id
       }
     }
@@ -152,14 +152,14 @@ async function processEvent(cfg, payload) {
 
   // 权限检查（挡位进阶：level >= minLevel 即通过）
   if (level < cmd.minLevel) {
-    try { await ctx.deny(); } catch (e) { console.error('[qbot] deny reply failed:', e.message); }
+    try { await ctx.deny(); } catch (e) { console.error('[LQBot] deny reply failed:', e.message); }
     return;
   }
 
   try {
     await cmd.handler(ctx);
   } catch (e) {
-    console.error('[qbot] command handler error:', e);
+    console.error('[LQBot] command handler error:', e);
     try { await reply('命令执行出错：' + e.message); } catch (_) {}
   }
 }

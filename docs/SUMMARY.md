@@ -1,4 +1,4 @@
-qbot —— Serverless QQ 官方机器人（EdgeOne 边缘函数）会话总结
+LQBot —— Serverless QQ 官方机器人（EdgeOne 边缘函数）会话总结
 
 本文件汇总当前会话（项目搭建）的目标、架构、关键技术决策、验证结果与后续事项。
 
@@ -12,12 +12,12 @@ qbot —— Serverless QQ 官方机器人（EdgeOne 边缘函数）会话总结
 - 内置「挡位进阶权限系统」+「插件式命令系统」+ 三个内置命令
 - 不考虑频道（Guild）场景
 
-项目目录名即项目名：qbot（工作区 D:/Code/jsucraft/qbot）。
+项目名：LQBot（仓库目录仍为 qbot：D:/Code/jsucraft/qbot，可在本地按需重命名）。
 
 ============================================================
 二、目录结构（当前）
 ============================================================
-qbot/
+LQBot/
   edge-functions/            # 仅对外暴露的接口
     api/webhook.js           # POST /api/webhook 入口（onRequest）
   src/                       # 所有内部模块（被边缘构建打包进函数）
@@ -156,10 +156,10 @@ qbot/
 2. 配置环境变量（见 .env.example）：
    APP_ID / APP_SECRET / SUPER_ADMIN_OPENID（其余可选）。
 3. 本地开发：
-   PAGES_SOURCE=skills edgeone makers dev -n qbot
+   PAGES_SOURCE=skills edgeone makers dev -n LQBot
    访问 http://127.0.0.1:8088/
 4. 部署：
-   PAGES_SOURCE=skills edgeone makers deploy -n qbot
+   PAGES_SOURCE=skills edgeone makers deploy -n LQBot
 5. QQ 开放平台「开发设置 → 回调地址」填写：
    https://<你的边缘函数域名>/api/webhook
    平台先发 op=13 地址校验，本服务自动签名通过。

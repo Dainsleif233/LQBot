@@ -1,5 +1,5 @@
 {
-  "name": "qbot",
+  "name": "LQBot",
   "version": "0.1.0",
   "private": true,
   "description": "Serverless QQ official bot on EdgeOne edge functions"
