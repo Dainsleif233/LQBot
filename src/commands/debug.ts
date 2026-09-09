@@ -1,13 +1,13 @@
 // /debug —— 调试命令
 // 群聊 at 与私聊场景均可；权限要求 0（所有人）。
 // 返回：原消息、参数、参数数量、用户 openid、用户权限、用户昵称。
-import { levelName } from '../lib/permissions.js';
+import { LEVELS, levelName } from '../lib/permissions.js';
 import type { Command, CommandContext, Scene } from '../lib/types.js';
 export const name = 'debug';
 export const aliases: string[] = [];
 export const description = '调试';
 export const scenes: Scene[] = ['group', 'private'];
-export const minLevel = 0;
+export const minLevel = LEVELS.USER;
 export async function handler(ctx: CommandContext): Promise<void> {
   const { args, raw, original, userOpenid, level, nick, scene } = ctx;
   const lines = [
