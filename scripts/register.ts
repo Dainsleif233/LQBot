@@ -10,8 +10,8 @@
 //   POST   /v2/panels                      （10 QPM，每机器人最多 20 个面板）
 // 元素规则：name 不带 /；别名也各自注册；minLevel>=1 -> only_admin=true。
 // 凭证：APP_ID / APP_SECRET（或 WEBHOOK_SECRET）/ SUPER_ADMIN_OPENID，来自环境变量或仓库根目录 .env。
-// 域名：QQ_API_BASE 与运行时一致（默认 https://api.sgroup.qq.com）；官方已统一为
-//       api.bot.qq.com，若面板接口在旧域名报错，设 QQ_API_BASE=https://api.bot.qq.com 重试。
+// 域名：QQ_API_BASE 默认 https://api.bot.qq.com（官方 2026-08-10 起统一域名）；
+//       沙箱/旧域可显式设 QQ_API_BASE 覆盖（如 https://sandbox.api.sgroup.qq.com）。
 // 运行：npm run register   （即 npx tsx scripts/register.ts；或 node --experimental-strip-types scripts/register.ts）
 
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
@@ -231,7 +231,7 @@ async function main(): Promise<void> {
     console.error('缺少 APP_ID / APP_SECRET（或 WEBHOOK_SECRET）：请设置环境变量或配置仓库根目录 .env');
     process.exit(1);
   }
-  const apiBase = (process.env.QQ_API_BASE || 'https://api.sgroup.qq.com').replace(/\/+$/, '');
+  const apiBase = (process.env.QQ_API_BASE || 'https://api.bot.qq.com').replace(/\/+$/, '');
 
   const cmds = collectCommands();
   if (!cmds.length) {

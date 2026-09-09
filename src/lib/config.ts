@@ -7,8 +7,8 @@ export function createConfig(env: Record<string, string | undefined> | undefined
     // QQ 机器人 AppID / AppSecret（用于换取 access_token 与 webhook 签名）
     appId: env.APP_ID || '',
     appSecret: env.APP_SECRET || env.WEBHOOK_SECRET || '',
-    // QQ OpenAPI 基地址（沙箱可用 https://sandbox.api.sgroup.qq.com）
-    apiBase: (env.QQ_API_BASE || 'https://api.sgroup.qq.com').replace(/\/+$/, ''),
+    // QQ OpenAPI 基地址（官方 2026-08-10 起统一为 https://api.bot.qq.com；沙箱可用 https://sandbox.api.sgroup.qq.com）
+    apiBase: (env.QQ_API_BASE || 'https://api.bot.qq.com').replace(/\/+$/, ''),
     // 超级管理员（环境变量设置，等级 3）。填写用户的 user_openid。
     superAdminOpenid: env.SUPER_ADMIN_OPENID || '',
     // 是否校验每次回调的 Ed25519 签名（默认关，开启更安全）。

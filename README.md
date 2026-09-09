@@ -77,8 +77,8 @@ LQBot/
 - 元素规则：`name` 不带 `/`（脚本自动剥掉），别名也各自注册为独立元素；`minLevel >= 1` 的元素标
   `only_admin=true`。
 - 依赖与限频：需要 `APP_ID / APP_SECRET（或 WEBHOOK_SECRET）/ SUPER_ADMIN_OPENID` 环境变量
-  （来自 `.env`）以及 `QQ_API_BASE`（默认 `https://api.sgroup.qq.com`，官方已统一为
-  `https://api.bot.qq.com`）。面板创建接口 **10 QPM**、每机器人最多 20 个面板；单个面板元素
+  （来自 `.env`）以及 `QQ_API_BASE`（默认 `https://api.bot.qq.com`，官方 2026-08-10 起统一域名；
+  沙箱/旧域可显式覆盖为 `https://sandbox.api.sgroup.qq.com`）。面板创建接口 **10 QPM**、每机器人最多 20 个面板；单个面板元素
   `desc` 最多 30 字符（超长会直接报 40030013 失败）。
 - `npm start` = `npm run register && npm run deploy`，即先同步面板再部署。
 
