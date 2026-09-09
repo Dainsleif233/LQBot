@@ -23,6 +23,8 @@ LQBot/
   src/                       # 所有内部模块（被边缘构建打包进函数）
     lib/
       config.ts              # 从 env 构建运行时配置
+      storage.ts             # KV 持久化封装（命名空间化：global + ns）
+      dedupe.ts              # 消息去重（窗口内 msg_id 汇总到单 key）
       crypto.ts             # Ed25519 签名/验签（基于 tweetnacl）
       tweetnacl.js          # vendored 纯 JS Ed25519（已去掉 require('crypto')）
       qq.ts                 # QQ OpenAPI 客户端（token/发群/发私聊/查成员）
@@ -63,8 +65,9 @@ LQBot/
 3) 本地 ES 模块 import 会被 esbuild 打包
    实测 edge-functions 内及 src/ 内的相对 import 都会被正确内联进产物。
 
-4) KV 是全局变量 my_kv（不在 context.env）
-   config.ts 通过 globalThis.my_kv 获取；任何使用 KV 的地方都做了 null 保护。
+4) KV 是全局变量 LQBOT（不在 context.env）
+   config.ts 通过 globalThis.LQBOT 获取并包成 storage.ts 的命名空间化 Storage；
+   未绑定时 storage.available === false，读写自动跳过。
 
 5) 命令处理放 waitUntil，先回 200 ACK(op=12)
    被动回复窗口（群 5 分钟 / 单聊 60 分钟）足够；先回 200 保证 QQ 投递成功。
@@ -103,10 +106,10 @@ LQBot/
 ============================================================
 六、内置命令
 ============================================================
-/permission（别名 /perm）[<user_openid> [<int>]]   群聊+私聊   等级 3（超级管理员）
+/permission（别名 /perm）[<user_openid> [<0-3>|reset]]   群聊+私聊   等级 3（超级管理员）
   - 无参：返回你当前场景权限
   - 1 参：返回该用户当前场景权限（含 KV 覆盖值）
-  - 2 参：把该用户权限设为 0-3（写入 KV perm:<user_openid>）
+  - 2 参：把该用户权限设为 0-3（写入 KV perm:<user_openid>）；reset 清除覆盖
 
 /debug [args]                           群聊+私聊   等级 0
   - 回显：原消息、参数、参数数量、用户 openid、用户权限、用户昵称、场景
@@ -149,7 +152,7 @@ LQBot/
 ============================================================
 九、部署步骤
 ============================================================
-1. EdgeOne Makers 控制台开启 KV 存储 → 创建命名空间 → 绑定到本项目，变量名设为 my_kv。
+1. EdgeOne Makers 控制台开启 KV 存储 → 创建命名空间 → 绑定到本项目，变量名设为 LQBOT。
 2. 配置环境变量（见 .env.example）：
    APP_ID / APP_SECRET / SUPER_ADMIN_OPENID（其余可选）。
 3. 本地开发：

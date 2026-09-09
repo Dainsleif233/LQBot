@@ -13,7 +13,9 @@ LQBot/
 │   └── webhook.ts               # POST /webhook 入口（onRequest）
 ├── src/                         # 内部模块（边缘构建打包进函数）
 │   ├── lib/
-│   │   ├── config.ts            # 运行时配置（从 env + globalThis.my_kv 构建）
+│   │   ├── config.ts            # 运行时配置（从 env + globalThis.LQBOT 构建）
+│   │   ├── storage.ts           # KV 持久化封装（命名空间化：global + ns(name)）
+│   │   ├── dedupe.ts            # 消息去重（窗口内 msg_id 汇总到单 key）
 │   │   ├── crypto.ts            # Webhook 的 Ed25519 签名/验签
 │   │   ├── tweetnacl.js         # vendored 纯 JS Ed25519（无类型，保留 .js）
 │   │   ├── qq.ts                # QQ OpenAPI 客户端（token/发群/发私聊/查成员）
@@ -41,7 +43,7 @@ LQBot/
 2. 源码是 TypeScript（.ts），但 import 语句一律用 .js 扩展名（NodeNext 规范），esbuild 会解析到对应的 .ts 文件。移动/新增模块时 import 仍写 .js 后缀。
 3. tsconfig 的 module 与 moduleResolution 必须同为 NodeNext。tweetnacl.js 无类型，靠 allowJs:true 被引用；**保持 vendored 原样，不要改成 .ts 或加强类型**。
 4. src/ 在 edge-functions/ 之外，但边缘构建（esbuild）会跟随相对 import 打包，已实测可用。edge-functions/ 只放对外接口。
-5. KV 是全局变量 my_kv（globalThis.my_kv），不在 context.env。任何用到 KV 的地方都做了 null 保护（未绑定则跳过持久化）。
+5. KV 是全局变量 **LQBOT**（globalThis.LQBOT），不在 context.env；控制台绑定时的「变量名」必须设为 LQBOT。统一走 src/lib/storage.ts（命名空间化封装）：storage.global 前缀 bot:（token 缓存 bot:app_access_token、去重 bot:seen，窗口内 id 汇总并自动裁剪），storage.ns('<模块>') 前缀 <模块>:（权限覆盖 perm:<openid>）。未绑定时 storage.available === false，读写自动跳过。
 6. 命令处理**同步 await 后再返回** { op: 12 } 200（边缘运行时可能在返回 200 后立即冻结 isolate，waitUntil 后台跑会丢失回复与日志；被动回复窗口群 5 分钟 / 单聊 60 分钟，同步处理完全来得及）。被动回复携带**消息 id 作 msg_id**（取自 d.id，形如 ROBOT1.0_...），**不是 event_id**（event.id 是事件 id 形如 C2C_MESSAGE_CREATE:...，被动回复不认）。
 7. QQ API 返回结构（尤其群成员 role/nick）官方文档未完整开放，相关代码已做兼容，实测字段不同需校准。
 
@@ -51,7 +53,7 @@ LQBot/
 - 部署：PAGES_SOURCE=skills edgeone makers deploy -n LQBot
 - 同步指令面板：npm run register（将 src/commands 命令同步为 QQ 指令面板；先快照再删重建、出错自动回滚；等级≥3 仅私聊按用户限定）。
 - 环境变量见 .env.example：APP_ID / APP_SECRET（或 WEBHOOK_SECRET）/ SUPER_ADMIN_OPENID / QQ_API_BASE / VERIFY_EVENT_SIGNATURE / CHECK_GROUP_ADMIN / GROUP_SCENE_LEVEL
-- 部署前先在 EdgeOne 控制台开通 KV 并绑定命名空间，变量名设为 my_kv。
+- 部署前先在 EdgeOne 控制台开通 KV 并绑定命名空间，**变量名设为 LQBOT**。
 
 ## 权限系统
 等级（挡位进阶，高等级拥有低等级全部权限）：
@@ -60,6 +62,7 @@ LQBot/
   1 群聊管理员  默认「场景值」；可经 /permission 覆盖
   0 普通用户    默认「场景值」；可经 /permission 覆盖
 解析顺序（resolveLevel）：env 超管 → KV 显式覆盖 → 场景默认。私聊按群管(1)处理；群聊默认 GROUP_SCENE_LEVEL，开 CHECK_GROUP_ADMIN 时按群成员 role 识别真实群管。详见 permissions.ts。
+清除覆盖：/permission <openid> reset（删除 KV perm:<openid>，回到场景默认）。
 
 ## 命令系统
 - 触发：群聊 @机器人 消息、私聊消息。格式 /<command> [args]。

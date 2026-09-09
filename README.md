@@ -15,7 +15,9 @@ LQBot/
 │   └── webhook.ts               # POST /webhook 入口
 ├── src/                         # 内部模块（边缘构建打包进函数）
 │   ├── lib/
-│   │   ├── config.ts            # 运行时配置（env + my_kv）
+│   │   ├── config.ts            # 运行时配置（env + LQBOT）
+│   │   ├── storage.ts           # KV 持久化封装（命名空间化）
+│   │   ├── dedupe.ts            # 消息去重（窗口内 msg_id 汇总到单 key）
 │   │   ├── crypto.ts            # Ed25519 签名/验签
 │   │   ├── tweetnacl.js         # vendored 纯 JS Ed25519
 │   │   ├── qq.ts                # QQ OpenAPI 客户端（token / 发消息）
@@ -41,7 +43,7 @@ LQBot/
 
 1. 开通 KV 存储并绑定命名空间
    - EdgeOne Makers 控制台 -> KV 存储 -> 申请 -> 创建命名空间
-   - 绑定到本项目，变量名设为 my_kv（代码里作为全局变量 my_kv 访问）
+   - 绑定到本项目，**变量名设为 LQBOT**（代码里作为全局变量 LQBOT 访问；必须与控制台一致）
 
 2. 配置环境变量
    - 本地：复制 .env.example 为 .env；或在 Makers 控制台设置：
@@ -105,12 +107,30 @@ LQBot/
 - 反馈按场景自动发送（群聊 -> 群、私聊 -> 私聊），使用被动回复。
 
 内置命令：
-- /permission（别名 /perm）[<user_openid> [<int>]]  （群聊/私聊，等级 3）
+- /permission（别名 /perm）[<user_openid> [<0-3>|reset]]  （群聊/私聊，等级 3）
    - 无参：  返回你当前的场景权限
    - 1 参：  返回该用户当前的场景权限（含 KV 覆盖值）
-   - 2 参：  把该用户权限设为 0-3
+   - 2 参：  把该用户权限设为 0-3；`reset` 清除覆盖，回到场景默认值
 - /debug [args]   （群聊/私聊，等级 0）：回显原消息、参数、参数数量、用户 openid、
   用户权限、用户昵称
+
+## 数据持久化（KV）
+
+KV 绑定后以**全局变量 `LQBOT`** 暴露（不在 `env` 里；控制台绑定时的「变量名」必须设为 `LQBOT`）。
+未绑定时 `storage.available === false`，所有持久化自动跳过，机器人仍可运行。
+
+统一通过 `src/lib/storage.ts` 的命名空间化封装访问，实际 key 形如 `<namespace>:<key>`：
+
+- `storage.global`（前缀 `bot:`）——跨模块基础设施：
+  - `bot:app_access_token`：QQ access_token 缓存（`{access_token, expire_at}`）
+  - `bot:seen`：最近 10 分钟内处理过的 msg_id 集合（单 key、写入时自动裁剪过期项并限长，避免 key 无限增长）
+- `storage.ns('<模块>')`——各命令/模块自己的业务数据：
+  - `perm:<user_openid>`：权限覆盖值 `0-3`（`/permission` 命令）
+
+接口：`get / set / del / has / getJSON / setJSON`（`available` 标识 KV 是否绑定）。命令处理器只用
+`ctx.cfg.storage`，不要直接访问全局 KV 变量；业务 key 走自己模块的命名空间。
+
+权限覆盖可用 `/permission <user_openid> reset` 清除（回到场景默认值）。
 
 ## 新增命令
 
