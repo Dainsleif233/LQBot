@@ -33,6 +33,7 @@ LQBot/
     commands/
       permission.ts          # /permission [openid] [int]   群+私聊  level 3
       debug.ts               # /debug [args]               群+私聊  level 0
+  scripts/                  # 指令面板同步脚本（npm run register -> register.ts）
   .env.example
   package.json
   README.md
@@ -156,7 +157,10 @@ LQBot/
    访问 http://127.0.0.1:8088/
 4. 部署：
    PAGES_SOURCE=skills edgeone makers deploy -n LQBot
-5. QQ 开放平台「开发设置 → 回调地址」填写：
+5. （可选）同步指令面板：
+   npm run register
+   把 src/commands 下命令（含别名）同步为 QQ 指令面板（等级≥3 仅私聊按用户限定；先快照再重建、出错回滚）。
+6. QQ 开放平台「开发设置 → 回调地址」填写：
    https://<你的边缘函数域名>/webhook
    平台先发 op=13 地址校验，本服务自动签名通过。
 

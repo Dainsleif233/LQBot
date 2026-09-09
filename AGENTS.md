@@ -24,6 +24,8 @@ LQBot/
 │   └── commands/
 │       ├── permission.ts        # /permission（别名 /perm）权限管理，level 3
 │       └── debug.ts             # /debug 调试命令，level 0
+├── scripts/
+│   └── register.ts             # 指令面板同步脚本（npm run register）
 ├── docs/
 │   └── SUMMARY.md
 ├── .env.example
@@ -47,6 +49,7 @@ LQBot/
 - 构建：PAGES_SOURCE=skills edgeone makers build
 - 本地开发：PAGES_SOURCE=skills edgeone makers dev -n LQBot（访问 http://127.0.0.1:8088/）
 - 部署：PAGES_SOURCE=skills edgeone makers deploy -n LQBot
+- 同步指令面板：npm run register（将 src/commands 命令同步为 QQ 指令面板；先快照再删重建、出错自动回滚；等级≥3 仅私聊按用户限定）。
 - 环境变量见 .env.example：APP_ID / APP_SECRET（或 WEBHOOK_SECRET）/ SUPER_ADMIN_OPENID / QQ_API_BASE / VERIFY_EVENT_SIGNATURE / CHECK_GROUP_ADMIN / GROUP_SCENE_LEVEL
 - 部署前先在 EdgeOne 控制台开通 KV 并绑定命名空间，变量名设为 my_kv。
 
@@ -71,6 +74,7 @@ LQBot/
 
 ## 已知坑位 / 边界
 - getAppAccessToken 请求体字段名是 **appId**（不是 clientId）；改用 clientId 会返回 {code:100007,"appid invalid"}，即使凭证正确。当前 body 同时带 appId 与 clientId 以兼容旧文档。
+- 指令面板接口 POST /v2/panels 频率 10 QPM、每机器人最多 20 个；元素 desc 最多 30 字符（超长直接 40030013 失败）。群聊面板 target 只能按群(group_openids)限定、无法按用户精确限定，故等级≥3 命令只在私聊(c2c)面板注册（见 scripts/register.ts 的 buildNewPanels）。
 - 被动回复（发群/发私聊消息）用请求体字段 **msg_id**（值=接收到的消息 id d.id，形如 ROBOT1.0_...）。若误用 event_id 或误填顶层事件 id（C2C_MESSAGE_CREATE:...）会报 40034025「event_id 无效」或 40034027「event_id 对应事件不能回复消息」。
 - 群成员接口 GET /v2/groups/{group_openid}/members（及 role/nick 字段）官方文档未完整开放；permissions.ts 的 isGroupAdminRole（当前：role 含 admin/owner/群主 或 数字>=2 判群管）需按实测校准。
 - 主动消息限频（群/单聊 每月 4 条）由 QQ 侧控制；本项目优先被动回复。

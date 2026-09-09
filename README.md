@@ -26,6 +26,8 @@ LQBot/
 │   └── commands/
 │       ├── permission.ts        # /permission 权限管理（level 3）
 │       └── debug.ts             # /debug 调试命令（level 0）
+├── scripts/
+│   └── register.ts             # 指令面板同步脚本（npm run register）
 ├── docs/
 │   └── SUMMARY.md
 ├── .env.example
@@ -58,6 +60,27 @@ LQBot/
    - 在 QQ 开放平台「开发设置 -> 回调地址」填写：https://<你的边缘域名>/webhook
    - 平台先发 op=13 地址校验。本服务用 APP_SECRET（或 WEBHOOK_SECRET）派生 Ed25519
      私钥，对 event_ts + plain_token 签名并返回，自动通过校验。
+
+## 指令面板（命令菜单）同步
+
+`npm run register`（内部 `npx tsx scripts/register.ts`）把 `src/commands/` 下注册的命令
+（含别名）同步为 QQ 机器人的「指令面板」，方便用户在聊天框一键触发。
+
+- 数据源与命令系统同源：脚本直接读取 `src/commands/*.ts` 的 `name / aliases / description / minLevel`，
+  不需要手动维护清单。
+- 面板拆分规则：
+  - 等级 < 3 的命令 → 「全量面板」（`target_type=all`，群聊与私聊都注册，所有人可见）。
+  - 等级 ≥ 3 的命令 → 只在**私聊(c2c)** 面板按 `user_openids=[SUPER_ADMIN_OPENID]` 精确限定到超级管理员；
+    群聊面板无法按用户精确限定（其 `target` 只能按群 `group_openids` 限定），故群聊不注册这些命令。
+- 同步策略（对账式，避免重复/超配额）：先 `GET` 某场景现有面板并存入内存快照 → 删除全部 →
+  按当前命令重建；**任一步出错则回滚**：再次获取并删光当前面板，再把内存中的原有面板原样还原。
+- 元素规则：`name` 不带 `/`（脚本自动剥掉），别名也各自注册为独立元素；`minLevel >= 1` 的元素标
+  `only_admin=true`。
+- 依赖与限频：需要 `APP_ID / APP_SECRET（或 WEBHOOK_SECRET）/ SUPER_ADMIN_OPENID` 环境变量
+  （来自 `.env`）以及 `QQ_API_BASE`（默认 `https://api.sgroup.qq.com`，官方已统一为
+  `https://api.bot.qq.com`）。面板创建接口 **10 QPM**、每机器人最多 20 个面板；单个面板元素
+  `desc` 最多 30 字符（超长会直接报 40030013 失败）。
+- `npm start` = `npm run register && npm run deploy`，即先同步面板再部署。
 
 ## 权限系统
 
@@ -95,9 +118,9 @@ LQBot/
 commands 数组：
 ```typescript
 import { LEVELS } from '../lib/permissions.js';
-export const name = 'hello';
-export const aliases = ['hi'];
-export const description = '打招呼';
+export const name = 'hello';          // 8个字以内
+export const aliases = ['hi'];        // 8个字以内
+export const description = '打招呼';   // 15个字以内
 export const scenes = ['group', 'private'];
 export const minLevel = LEVELS.USER;
 export async function handler(ctx) {
