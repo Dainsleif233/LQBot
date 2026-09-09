@@ -8,23 +8,31 @@ export function createConfig(env: Record<string, string | undefined> | undefined
   const rawKv = (typeof globalThis !== 'undefined' && (globalThis as any).LQBOT)
     ? ((globalThis as any).LQBOT as KVLike)
     : null;
+  // 群聊场景默认等级：非法值回退 1，并 clamp 到 0-3。
+  // 必须校验——NaN 参与 `level < minLevel` 比较恒为 false，会导致权限判断 fail-open。
+  const rawSceneLevel = (env.GROUP_SCENE_LEVEL === undefined || env.GROUP_SCENE_LEVEL === '')
+    ? 1
+    : parseInt(env.GROUP_SCENE_LEVEL, 10);
+  const groupSceneLevel = Number.isFinite(rawSceneLevel)
+    ? Math.min(3, Math.max(0, rawSceneLevel))
+    : 1;
   return {
-    // QQ 机器人 AppID / AppSecret（用于换取 access_token 与 webhook 签名）
+    // QQ 机器人 AppID
     appId: env.APP_ID || '',
+    // 换取 access_token 用的 AppSecret（兼容只配 WEBHOOK_SECRET 的旧写法）
     appSecret: env.APP_SECRET || env.WEBHOOK_SECRET || '',
+    // webhook 签名/验签用的密钥：优先 WEBHOOK_SECRET，未设置时回退 APP_SECRET
+    webhookSecret: env.WEBHOOK_SECRET || env.APP_SECRET || '',
     // QQ OpenAPI 基地址（官方 2026-08-10 起统一为 https://api.bot.qq.com；沙箱可用 https://sandbox.api.sgroup.qq.com）
     apiBase: (env.QQ_API_BASE || 'https://api.bot.qq.com').replace(/\/+$/, ''),
     // 超级管理员（环境变量设置，等级 3）。填写用户的 user_openid。
     superAdminOpenid: env.SUPER_ADMIN_OPENID || '',
-    // 是否校验每次回调的 Ed25519 签名（默认关，开启更安全）。
-    verifyEventSignature: env.VERIFY_EVENT_SIGNATURE === 'true',
+    // 是否校验每次回调的 Ed25519 签名（默认开；显式设 VERIFY_EVENT_SIGNATURE=false 才关闭）。
+    verifyEventSignature: env.VERIFY_EVENT_SIGNATURE !== 'false',
     // 群聊场景是否调用成员接口检测真实群管身份（默认开）。
     checkGroupAdmin: env.CHECK_GROUP_ADMIN !== 'false',
-    // 群聊场景的默认等级（"群聊管理员"场景值），默认 1。
-    groupSceneLevel: (env.GROUP_SCENE_LEVEL !== undefined && env.GROUP_SCENE_LEVEL !== '')
-      ? parseInt(env.GROUP_SCENE_LEVEL, 10)
-      : 1,
-    // 持久化入口（命名空间化封装）。KV 未绑定时 storage.available === false，相关功能自动跳过。
+    groupSceneLevel,
+    // 持久化入口（命名空间 × 作用域）。KV 未绑定时 storage.available === false，相关功能自动跳过。
     storage: createStorage(rawKv),
   };
 }

@@ -54,6 +54,8 @@ export interface Storage {
 export interface Config {
   appId: string;
   appSecret: string;
+  /** webhook 签名/验签用密钥（WEBHOOK_SECRET，缺省回退 APP_SECRET） */
+  webhookSecret: string;
   apiBase: string;
   superAdminOpenid: string;
   verifyEventSignature: boolean;
@@ -101,8 +103,8 @@ export interface Command {
 
 export interface QqApi {
   getAccessToken: (cfg: Config) => Promise<string>;
-  sendGroupMessage: (cfg: Config, groupOpenid: string, content: string, eventId?: string) => Promise<any>;
-  sendC2CMessage: (cfg: Config, userOpenid: string, content: string, eventId?: string) => Promise<any>;
+  sendGroupMessage: (cfg: Config, groupOpenid: string, content: string, msgId?: string) => Promise<any>;
+  sendC2CMessage: (cfg: Config, userOpenid: string, content: string, msgId?: string) => Promise<any>;
   getGroupMember: (cfg: Config, groupOpenid: string, memberOpenid: string) => Promise<MemberInfo | null>;
   listGroupMembers: (cfg: Config, groupOpenid: string, limit?: number, after?: string) => Promise<any>;
 }

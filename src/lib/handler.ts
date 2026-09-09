@@ -1,7 +1,7 @@
 // Webhook 主逻辑：验签/地址校验/分发事件/执行命令。
 import { createConfig } from './config.js';
 import { signWebhookChallenge, verifyWebhookSignature } from './crypto.js';
-import { resolveLevel, LEVELS } from './permissions.js';
+import { resolveLevel, LEVELS, levelName } from './permissions.js';
 import { parseCommand, findCommand } from './registry.js';
 import { createReply } from './reply.js';
 import { isDuplicate } from './dedupe.js';
@@ -31,7 +31,13 @@ export async function handleWebhook(context: EdgeContext): Promise<Response> {
       const sig = request.headers.get('X-Signature-Ed25519');
       const ts = request.headers.get('X-Signature-Timestamp');
       if (!sig || !ts) return new Response(JSON.stringify({ error: 'missing signature' }), { status: 401, headers: jsonHeaders });
-      const ok = await verifyWebhookSignature(cfg.appSecret, ts, rawBody, sig);
+      // 时间戳新鲜度：偏差超过 10 分钟视为重放并拒绝（兼容秒/毫秒时间戳）
+      const rawTs = Number(ts);
+      const tsSec = rawTs > 1e12 ? rawTs / 1000 : rawTs;
+      if (!Number.isFinite(tsSec) || Math.abs(Date.now() / 1000 - tsSec) > 600) {
+        return new Response(JSON.stringify({ error: 'stale timestamp' }), { status: 401, headers: jsonHeaders });
+      }
+      const ok = await verifyWebhookSignature(cfg.webhookSecret, ts, rawBody, sig);
       if (!ok) return new Response(JSON.stringify({ error: 'invalid signature' }), { status: 401, headers: jsonHeaders });
     }
     // 同步处理事件后再返回 200：确保被动回复真正发出、日志落盘。
@@ -54,11 +60,11 @@ async function handleVerification(cfg: Config, payload: any): Promise<Response> 
   if (!plainToken || eventTs === undefined || eventTs === null) {
     return new Response(JSON.stringify({ error: 'bad verification payload' }), { status: 400, headers: jsonHeaders });
   }
-  if (!cfg.appSecret) {
+  if (!cfg.webhookSecret) {
     return new Response(JSON.stringify({ error: 'APP_SECRET/WEBHOOK_SECRET 未配置，无法完成地址校验' }), { status: 500, headers: jsonHeaders });
   }
   try {
-    const signature = await signWebhookChallenge(cfg.appSecret, plainToken, eventTs);
+    const signature = await signWebhookChallenge(cfg.webhookSecret, plainToken, eventTs);
     return new Response(JSON.stringify({ plain_token: plainToken, signature }), { status: 200, headers: jsonHeaders });
   } catch (e) {
     return new Response(JSON.stringify({ error: '签名失败: ' + (e as Error).message }), { status: 500, headers: jsonHeaders });
@@ -74,7 +80,8 @@ async function processEvent(cfg: Config, payload: any): Promise<void> {
   const scene: Scene = t === 'C2C_MESSAGE_CREATE' ? 'private' : 'group';
   // 被动回复用 msg_id（= 接收到的消息 id d.id，形如 ROBOT1.0_...），不是 event_id。
   // event.id 是事件 id（C2C_MESSAGE_CREATE:...），QQ 被动回复不认它。
-  const messageId = d.id || (event && event.id) || '';
+  // 只认消息 id（d.id）；event.id 是事件 id，作 msg_id 会被 QQ 拒绝，不做回退。
+  const messageId = d.id || '';
   // 去重：QQ 可能重复投递同一 msg_id，窗口期内视为重复并跳过（实现见 lib/dedupe.ts）。
   if (await isDuplicate(cfg, messageId)) {
     return;
@@ -134,7 +141,7 @@ async function processEvent(cfg: Config, payload: any): Promise<void> {
     reply,
     // 便捷：需要更高等级时的拒绝回复
     async deny() {
-      return reply('权限不足：需要等级 ' + cmd.minLevel + '（' + levelNameSafe(cmd.minLevel) + '），当前等级 ' + level);
+      return reply('权限不足：需要等级 ' + cmd.minLevel + '（' + levelName(cmd.minLevel) + '），当前等级 ' + level);
     },
   };
   // 权限检查（挡位进阶：level >= minLevel 即通过）
@@ -148,8 +155,4 @@ async function processEvent(cfg: Config, payload: any): Promise<void> {
     console.error('[LQBot] command handler error:', e);
     try { await reply('命令执行出错：' + (e as Error).message); } catch (e2) { console.error('[LQBot] reply failed:', e2); }
   }
-}
-function levelNameSafe(n: number): string {
-  const map: Record<number, string> = { 3: '超级管理员', 2: '全局管理员', 1: '群聊管理员', 0: '普通用户' };
-  return map[n] || String(n);
 }
