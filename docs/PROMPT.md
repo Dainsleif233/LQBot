@@ -16,7 +16,7 @@
 获取用户openid，群聊场景，权限3，/openid <user_name>
 返回目标用户的openid
 二、然后写一个测试命令：
-群聊和私聊场景，权限0，/test [args]
+群聊和私聊场景，权限0，/debug [args]
 返回原消息、参数、参数数量、用户openid、用户权限、用户昵称
 参考：
 环境有edgeone全栈开发skill
