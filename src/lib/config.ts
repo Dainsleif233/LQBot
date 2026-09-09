@@ -1,8 +1,13 @@
 // 运行时配置：从环境变量构建（每次请求重建，因为 env 是 per-request 的）
-// 注意：my_kv 是 EdgeOne 绑定后的全局变量，不在 env 里，这里通过 globalThis 安全获取。
-import type { Config } from './types.js';
+// 注意：KV 绑定后作为全局变量 LQBOT 暴露（不在 env 里），这里通过 globalThis 安全获取并包成 storage。
+import type { Config, KVLike } from './types.js';
+import { createStorage } from './storage.js';
 export function createConfig(env: Record<string, string | undefined> | undefined): Config {
   env = env || {};
+  // KV 命名空间：控制台绑定时的「变量名」即此全局变量名（LQBOT）。未绑定则为 null。
+  const rawKv = (typeof globalThis !== 'undefined' && (globalThis as any).LQBOT)
+    ? ((globalThis as any).LQBOT as KVLike)
+    : null;
   return {
     // QQ 机器人 AppID / AppSecret（用于换取 access_token 与 webhook 签名）
     appId: env.APP_ID || '',
@@ -19,9 +24,7 @@ export function createConfig(env: Record<string, string | undefined> | undefined
     groupSceneLevel: (env.GROUP_SCENE_LEVEL !== undefined && env.GROUP_SCENE_LEVEL !== '')
       ? parseInt(env.GROUP_SCENE_LEVEL, 10)
       : 1,
-    // KV 命名空间（绑定后才有）。未绑定则为 null，持久化相关功能会被跳过。
-    kv: (typeof globalThis !== 'undefined' && (globalThis as any).my_kv)
-      ? (globalThis as any).my_kv
-      : null,
+    // 持久化入口（命名空间化封装）。KV 未绑定时 storage.available === false，相关功能自动跳过。
+    storage: createStorage(rawKv),
   };
 }

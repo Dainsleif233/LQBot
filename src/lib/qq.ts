@@ -1,16 +1,16 @@
 // QQ OpenAPI 客户端：换取 access_token、发送群/单聊消息、查询群成员。
 // access_token 缓存在 KV（避免频繁换取，token 有效期通常 7200s）。
 import type { Config, MemberInfo } from './types.js';
-const TOKEN_KEY = 'bot:app_access_token';
+// token 缓存在全局命名空间：实际 key = `bot:app_access_token`
+const TOKEN_KEY = 'app_access_token';
+interface TokenCache { access_token?: string; expire_at?: number; }
 export async function getAccessToken(cfg: Config): Promise<string> {
-  if (cfg.kv) {
+  const cache = cfg.storage.global;
+  if (cache.available) {
     try {
-      const raw = await cfg.kv.get(TOKEN_KEY);
-      if (raw) {
-        const cached = JSON.parse(typeof raw === 'string' ? raw : JSON.stringify(raw));
-        if (cached && cached.access_token && cached.expire_at && cached.expire_at > Date.now() + 60_000) {
-          return cached.access_token;
-        }
+      const cached = await cache.getJSON<TokenCache>(TOKEN_KEY);
+      if (cached && cached.access_token && cached.expire_at && cached.expire_at > Date.now() + 60_000) {
+        return cached.access_token;
       }
     } catch (_) { /* 缓存不存在/损坏，忽略并重新获取 */ }
   }
@@ -28,9 +28,9 @@ export async function getAccessToken(cfg: Config): Promise<string> {
   }
   const token = data.access_token;
   const expiresIn = Number(data.expires_in) || 7200;
-  if (cfg.kv) {
+  if (cache.available) {
     try {
-      await cfg.kv.put(TOKEN_KEY, JSON.stringify({ access_token: token, expire_at: Date.now() + expiresIn * 1000 }));
+      await cache.setJSON(TOKEN_KEY, { access_token: token, expire_at: Date.now() + expiresIn * 1000 });
     } catch (_) { /* 缓存写入失败不影响主流程 */ }
   }
   return token;

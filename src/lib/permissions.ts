@@ -2,6 +2,8 @@
 // 解析顺序：超级管理员(env,3) > KV 显式覆盖(0-3) > 场景默认值。
 import type { Config, Scene, MemberInfo } from './types.js';
 export const LEVELS = { SUPER_ADMIN: 3, GLOBAL_ADMIN: 2, GROUP_ADMIN: 1, USER: 0 } as const;
+// 权限覆盖的 KV 命名空间：实际 key = `perm:<user_openid>`
+export const PERM_NS = 'perm';
 export const LEVEL_NAMES: Record<number, string> = {
   3: '超级管理员',
   2: '全局管理员',
@@ -34,10 +36,10 @@ export async function resolveLevel(cfg: Config, opts: ResolveOpts): Promise<numb
   if (cfg.superAdminOpenid && userOpenid && userOpenid === cfg.superAdminOpenid) {
     return LEVELS.SUPER_ADMIN;
   }
-  // 2. KV 中的显式覆盖（覆盖场景值）
-  if (cfg.kv && userOpenid) {
+  // 2. KV 中的显式覆盖（覆盖场景值），存放在权限模块命名空间：perm:<user_openid>
+  if (userOpenid) {
     try {
-      const raw = await cfg.kv.get('perm:' + userOpenid);
+      const raw = await cfg.storage.ns(PERM_NS).get(userOpenid);
       if (raw !== null && raw !== undefined && raw !== '') {
         const n = parseInt(raw, 10);
         if (!Number.isNaN(n) && n >= 0 && n <= 3) return n;
