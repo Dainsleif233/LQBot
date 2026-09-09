@@ -238,7 +238,8 @@ async function main(): Promise<void> {
     console.error('未在 src/commands/ 下解析到任何命令，请检查命令模块的导出。');
     process.exit(1);
   }
-  console.log('同步命令：' + cmds.map((c) => '/' + c.name).join('、') + '（含别名）');
+  const allNames = cmds.flatMap((c) => [c.name, ...c.aliases]).map((n) => '/' + n);
+  console.log('同步命令：' + allNames.join('、'));
 
   const token = await getAppAccessToken(appId, appSecret);
   for (const scope of SCOPES) {
