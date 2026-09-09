@@ -5,7 +5,7 @@ import { levelName } from '../lib/permissions.js';
 import type { Command, CommandContext, Scene } from '../lib/types.js';
 export const name = 'debug';
 export const aliases: string[] = [];
-export const description = '测试命令：回显消息与调用者信息';
+export const description = '调试';
 export const scenes: Scene[] = ['group', 'private'];
 export const minLevel = 0;
 export async function handler(ctx: CommandContext): Promise<void> {
