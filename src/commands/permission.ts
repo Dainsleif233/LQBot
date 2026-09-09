@@ -12,10 +12,15 @@ export async function handler(ctx: CommandContext): Promise<void> {
   const { args, cfg, reply, level, scene, groupOpenid, memberOpenid } = ctx;
   const target = args[0];
   const value = args[1];
-  const store = cfg.storage.ns(PERM_NS); // 权限模块命名空间：perm:<user_openid>
   // 无参数：返回当前用户场景权限
   if (!target) {
     await reply('你当前的权限等级为：' + level + '（' + levelName(level) + '）');
+    return;
+  }
+  // 权限覆盖存在「用户场景变量」：实际 key = perm:user:<target>:level
+  const store = cfg.storage.ns(PERM_NS).user(target);
+  if (!store) {
+    await reply('目标用户 openid 无效。');
     return;
   }
   // 查询目标用户
@@ -25,7 +30,7 @@ export async function handler(ctx: CommandContext): Promise<void> {
     } else {
       let stored: string | null = null;
       try {
-        stored = await store.get(target);
+        stored = await store.get('level');
       } catch (_) {}
       if (stored !== null && stored !== undefined && stored !== '') {
         const n = parseInt(stored, 10);
@@ -46,7 +51,7 @@ export async function handler(ctx: CommandContext): Promise<void> {
       return;
     }
     try {
-      await store.del(target);
+      await store.del('level');
     } catch (e) {
       await reply('删除 KV 失败：' + (e as Error).message);
       return;
@@ -65,7 +70,7 @@ export async function handler(ctx: CommandContext): Promise<void> {
     return;
   }
   try {
-    await store.set(target, String(n));
+    await store.set('level', String(n));
   } catch (e) {
     await reply('写入 KV 失败：' + (e as Error).message);
     return;

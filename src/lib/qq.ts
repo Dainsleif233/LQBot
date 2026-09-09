@@ -5,7 +5,7 @@ import type { Config, MemberInfo } from './types.js';
 const TOKEN_KEY = 'app_access_token';
 interface TokenCache { access_token?: string; expire_at?: number; }
 export async function getAccessToken(cfg: Config): Promise<string> {
-  const cache = cfg.storage.global;
+  const cache = cfg.storage.infra.global; // key: bot:global:app_access_token
   if (cache.available) {
     try {
       const cached = await cache.getJSON<TokenCache>(TOKEN_KEY);

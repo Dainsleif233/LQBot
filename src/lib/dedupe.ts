@@ -23,7 +23,7 @@ type SeenMap = Record<string, number>;
  */
 export async function isDuplicate(cfg: Config, messageId: string): Promise<boolean> {
   if (!messageId) return false;
-  const store = cfg.storage.global;
+  const store = cfg.storage.infra.global; // key: bot:global:seen
   if (!store.available) return false;
 
   const now = Date.now();

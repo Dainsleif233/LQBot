@@ -7,9 +7,9 @@ export interface KVLike {
   delete(key: string): Promise<void>;
 }
 
-/** 命名空间化的存取器：所有 key 自动加 `<namespace>:` 前缀 */
+/** 单个作用域下的存取器：所有 key 自动加前缀 */
 export interface Store {
-  /** 命名空间名（即 key 前缀，不含冒号） */
+  /** 所属命名空间名（用于调试/日志） */
   readonly namespace: string;
   /** KV 是否已绑定；未绑定时 get 恒返回 null、写/删静默跳过 */
   readonly available: boolean;
@@ -21,13 +21,34 @@ export interface Store {
   setJSON(key: string, value: unknown): Promise<void>;
 }
 
-/** 持久化入口：global 用于跨模块基础设施，ns(name) 用于各命令/模块自己的数据 */
+/** 场景作用域：群聊按 group_openid、私聊按 user_openid 隔离 */
+export interface StorageScope {
+  scene: Scene;
+  groupOpenid?: string | null;
+  userOpenid?: string | null;
+}
+
+/** 一个命名空间内的两级存储：全局变量 + 场景变量 */
+export interface NamespaceStore {
+  readonly name: string;
+  readonly available: boolean;
+  /** 全局变量：整个机器人共享同一份值，key 形如 `<ns>:global:<key>` */
+  readonly global: Store;
+  /** 群聊场景变量，key 形如 `<ns>:group:<group_openid>:<key>`；openid 为空返回 null */
+  group(groupOpenid?: string | null): Store | null;
+  /** 用户场景变量，key 形如 `<ns>:user:<user_openid>:<key>`；openid 为空返回 null */
+  user(userOpenid?: string | null): Store | null;
+  /** 按当前场景自动选 group/user（可直接传 CommandContext） */
+  scene(scope: StorageScope): Store | null;
+}
+
+/** 持久化入口 */
 export interface Storage {
   readonly available: boolean;
-  /** 全局命名空间（前缀 bot:） */
-  readonly global: Store;
-  /** 取某命名空间的存取器（模块级数据） */
-  ns(name: string): Store;
+  /** 基础设施命名空间（前缀 bot:）：token 缓存、消息去重等跨模块数据 */
+  readonly infra: NamespaceStore;
+  /** 模块命名空间（前缀 <name>:）：各命令自己的业务数据 */
+  ns(name: string): NamespaceStore;
 }
 
 export interface Config {

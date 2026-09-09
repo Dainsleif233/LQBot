@@ -36,15 +36,19 @@ export async function resolveLevel(cfg: Config, opts: ResolveOpts): Promise<numb
   if (cfg.superAdminOpenid && userOpenid && userOpenid === cfg.superAdminOpenid) {
     return LEVELS.SUPER_ADMIN;
   }
-  // 2. KV 中的显式覆盖（覆盖场景值），存放在权限模块命名空间：perm:<user_openid>
+  // 2. KV 中的显式覆盖（覆盖场景值）：权限模块命名空间的「用户场景变量」
+  //    实际 key = `perm:user:<user_openid>:level`
   if (userOpenid) {
-    try {
-      const raw = await cfg.storage.ns(PERM_NS).get(userOpenid);
-      if (raw !== null && raw !== undefined && raw !== '') {
-        const n = parseInt(raw, 10);
-        if (!Number.isNaN(n) && n >= 0 && n <= 3) return n;
-      }
-    } catch (_) { /* KV 不可用，忽略 */ }
+    const store = cfg.storage.ns(PERM_NS).user(userOpenid);
+    if (store) {
+      try {
+        const raw = await store.get('level');
+        if (raw !== null && raw !== undefined && raw !== '') {
+          const n = parseInt(raw, 10);
+          if (!Number.isNaN(n) && n >= 0 && n <= 3) return n;
+        }
+      } catch (_) { /* KV 不可用，忽略 */ }
+    }
   }
   // 3. 场景默认值
   // 私聊消息权限同群聊管理员(1)。
