@@ -1,6 +1,7 @@
 // /permission —— 权限管理命令
 // 群聊 at 与私聊场景均可；权限要求 3（超级管理员）。
-import { resolveLevel, LEVELS, levelName } from '../lib/permissions.js';
+// 用法：/permission [<user_openid> [<0-3>|reset]]
+import { resolveLevel, LEVELS, levelName, PERM_NS } from '../lib/permissions.js';
 import type { Command, CommandContext, Scene } from '../lib/types.js';
 export const name = 'permission';
 export const aliases: string[] = ['perm']; // 别名 /perm
@@ -11,6 +12,7 @@ export async function handler(ctx: CommandContext): Promise<void> {
   const { args, cfg, reply, level, scene, groupOpenid, memberOpenid } = ctx;
   const target = args[0];
   const value = args[1];
+  const store = cfg.storage.ns(PERM_NS); // 权限模块命名空间：perm:<user_openid>
   // 无参数：返回当前用户场景权限
   if (!target) {
     await reply('你当前的权限等级为：' + level + '（' + levelName(level) + '）');
@@ -18,36 +20,52 @@ export async function handler(ctx: CommandContext): Promise<void> {
   }
   // 查询目标用户
   if (value === undefined) {
-    if (!cfg.kv) {
+    if (!store.available) {
       await reply('KV 未绑定，无法查询存储的权限；返回场景默认。');
-      return;
-    }
-    let stored: string | null = null;
-    try {
-      stored = await cfg.kv.get('perm:' + target);
-    } catch (_) {}
-    if (stored !== null && stored !== undefined && stored !== '') {
-      const n = parseInt(stored, 10);
-      await reply('用户 ' + target + ' 的权限（已设置）为：' + n + '（' + levelName(n) + '）');
-      return;
+    } else {
+      let stored: string | null = null;
+      try {
+        stored = await store.get(target);
+      } catch (_) {}
+      if (stored !== null && stored !== undefined && stored !== '') {
+        const n = parseInt(stored, 10);
+        await reply('用户 ' + target + ' 的权限（已设置）为：' + n + '（' + levelName(n) + '）');
+        return;
+      }
     }
     // 无存储值 -> 场景默认
     const resolved = await resolveLevel(cfg, { scene, userOpenid: target, groupOpenid, memberOpenid, memberInfo: null });
     await reply('用户 ' + target + ' 当前场景权限为：' + resolved + '（' + levelName(resolved) + '，未单独设置）');
     return;
   }
+  // 清除覆盖：/permission <openid> reset（也接受 delete / clear）
+  const op = String(value).toLowerCase();
+  if (op === 'reset' || op === 'delete' || op === 'clear') {
+    if (!store.available) {
+      await reply('KV 未绑定，无法清除权限设置。');
+      return;
+    }
+    try {
+      await store.del(target);
+    } catch (e) {
+      await reply('删除 KV 失败：' + (e as Error).message);
+      return;
+    }
+    await reply('已清除用户 ' + target + ' 的权限覆盖，回到场景默认值。');
+    return;
+  }
   // 设置目标用户权限
   const n = parseInt(value, 10);
   if (Number.isNaN(n) || n < 0 || n > 3) {
-    await reply('权限值必须为 0-3 的整数。');
+    await reply('权限值必须为 0-3 的整数，或 reset 以清除覆盖。');
     return;
   }
-  if (!cfg.kv) {
+  if (!store.available) {
     await reply('KV 未绑定，无法持久化权限设置。请先在控制台绑定 KV 命名空间。');
     return;
   }
   try {
-    await cfg.kv.put('perm:' + target, String(n));
+    await store.set(target, String(n));
   } catch (e) {
     await reply('写入 KV 失败：' + (e as Error).message);
     return;
