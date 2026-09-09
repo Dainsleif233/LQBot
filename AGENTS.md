@@ -68,6 +68,7 @@ LQBot/
 - 触发：群聊 @机器人 消息、私聊消息。格式 /<command> [args]。
 - 新增命令：在 src/commands/ 新建模块，导出 name / aliases / description / scenes(['group','private']) / minLevel / handler(ctx)，并以 export default { … } 导出；再 import 到 src/lib/registry.ts 的 commands 数组。
 - handler 接收的 ctx 包含：args, raw, original, scene, userOpenid, memberOpenid, groupOpenid, nick, level, memberInfo, event, messageId, cfg, qq, reply, deny。
+- 持久化：命令只用 ctx.cfg.storage——storage.ns('<命令名>') 为模块命名空间（实际 key `<命令名>:<key>`），storage.global（前缀 bot:）仅限跨模块基础设施；接口 get/set/del/has/getJSON/setJSON，未绑定时 available=false。详见 src/lib/storage.ts 与 README「新增命令」。
 - 权限按挡位比较（level >= minLevel 通过；否则调用 ctx.deny() 回复）。反馈由 reply 按场景被动发送。
 
 ## 验证
