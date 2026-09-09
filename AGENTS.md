@@ -40,6 +40,7 @@ LQBot/
 ## 关键技术约定（改动前必读）
 1. Webhook 签名 = Ed25519（不是 HMAC）。地址校验 op=13 签 event_ts+plain_token；事件校验签 timestamp+body 对 X-Signature-Ed25519。
    关键坑：EdgeOne 边缘运行时 WebCrypto 不支持 Ed25519（importKey/sign 均报 Param Invalid），因此 vendored 了 tweetnacl（src/lib/tweetnacl.js，公有领域、RFC8032）。**不要尝试改用 WebCrypto。** 种子派生与官方 Go 一致：secret 重复拼接到 ≥32 字节再截断。
+   事件验签默认**开启**（设 VERIFY_EVENT_SIGNATURE=false 才关闭）；验签密钥优先 WEBHOOK_SECRET、回退 APP_SECRET；时间戳（X-Signature-Timestamp）偏差 >10 分钟直接拒绝（防重放）；密钥为空时直接验签失败（不进入派生，避免死循环）。
 2. 源码是 TypeScript（.ts），但 import 语句一律用 .js 扩展名（NodeNext 规范），esbuild 会解析到对应的 .ts 文件。移动/新增模块时 import 仍写 .js 后缀。
 3. tsconfig 的 module 与 moduleResolution 必须同为 NodeNext。tweetnacl.js 无类型，靠 allowJs:true 被引用；**保持 vendored 原样，不要改成 .ts 或加强类型**。
 4. src/ 在 edge-functions/ 之外，但边缘构建（esbuild）会跟随相对 import 打包，已实测可用。edge-functions/ 只放对外接口。
@@ -82,6 +83,7 @@ LQBot/
 - 被动回复（发群/发私聊消息）用请求体字段 **msg_id**（值=接收到的消息 id d.id，形如 ROBOT1.0_...）。若误用 event_id 或误填顶层事件 id（C2C_MESSAGE_CREATE:...）会报 40034025「event_id 无效」或 40034027「event_id 对应事件不能回复消息」。
 - 群成员接口 GET /v2/groups/{group_openid}/members（及 role/nick 字段）官方文档未完整开放；permissions.ts 的 isGroupAdminRole（当前：role 含 admin/owner/群主 或 数字>=2 判群管）需按实测校准。
 - 主动消息限频（群/单聊 每月 4 条）由 QQ 侧控制；本项目优先被动回复。
+- GROUP_SCENE_LEVEL 非法值会被 clamp 到 0-3 并回退 1（config.ts）；不校验的话 NaN 参与 `level < minLevel` 恒为 false，会导致权限 fail-open。
 - .env 含官方文档示例密钥，仅本地签名验证用，上线请替换为真实凭证且勿提交（.gitignore 已忽略 .env 与 .edgeone）。
 
 ## Git / 提交约定（本仓库）

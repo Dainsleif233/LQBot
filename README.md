@@ -26,6 +26,7 @@ LQBot/
    **变量名设为 `LQBOT`**（绑定名即代码里的全局变量名，必须一致；不改则持久化自动跳过）。
 2. 配置环境变量：复制 `.env.example` 为 `.env`，或直接在控制台设置
    `APP_ID` / `APP_SECRET`（QQ 机器人凭证）、`SUPER_ADMIN_OPENID`（等级 3 用户 openid，可用 `/debug` 获取）等。
+   事件验签默认**开启**（`VERIFY_EVENT_SIGNATURE=false` 关闭）；单独配置了 `WEBHOOK_SECRET` 时验签用它、换 token 仍用 `APP_SECRET`。
 3. 本地开发：`PAGES_SOURCE=skills edgeone makers dev -n LQBot`（访问 http://127.0.0.1:8088/）
 4. 部署：`PAGES_SOURCE=skills edgeone makers deploy -n LQBot`
 5. 配置 QQ 回调地址：QQ 开放平台「开发设置 → 回调地址」填 `https://<你的边缘域名>/webhook`；

@@ -55,6 +55,8 @@ LQBot/
    - 事件校验：msg = timestamp + body（原始 body），与请求头
      X-Signature-Ed25519 / X-Signature-Timestamp 比对。
    - 种子派生（与官方 Go 示例一致）：把 secret 重复拼接直到 >=32 字节，再截断到 32 字节。
+   - 事件验签默认开启（VERIFY_EVENT_SIGNATURE=false 关闭）；密钥优先 WEBHOOK_SECRET；
+     时间戳偏差 >10 分钟拒绝；密钥为空时直接验签失败（不进入派生，避免空串死循环）。
 
 2) 边缘运行时 WebCrypto 不支持 Ed25519（重要坑）
    实测 EdgeOne 边缘运行时：importKey / sign / generateKey（Ed25519）全部抛出
