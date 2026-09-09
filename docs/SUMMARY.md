@@ -23,7 +23,7 @@ LQBot/
   src/                       # 所有内部模块（被边缘构建打包进函数）
     lib/
       config.ts              # 从 env 构建运行时配置
-      storage.ts             # KV 持久化封装（命名空间化：global + ns）
+      storage.ts             # KV 持久化封装（命名空间 × 作用域：global/group/user）
       dedupe.ts              # 消息去重（窗口内 msg_id 汇总到单 key）
       crypto.ts             # Ed25519 签名/验签（基于 tweetnacl）
       tweetnacl.js          # vendored 纯 JS Ed25519（已去掉 require('crypto')）
@@ -66,8 +66,8 @@ LQBot/
    实测 edge-functions 内及 src/ 内的相对 import 都会被正确内联进产物。
 
 4) KV 是全局变量 LQBOT（不在 context.env）
-   config.ts 通过 globalThis.LQBOT 获取并包成 storage.ts 的命名空间化 Storage；
-   未绑定时 storage.available === false，读写自动跳过。
+   config.ts 通过 globalThis.LQBOT 获取并包成 storage.ts 的 Storage（两级：命名空间 infra/ns('<模块>')
+   × 作用域 global/group/user/scene）；未绑定时 storage.available === false，读写自动跳过。
 
 5) 命令处理放 waitUntil，先回 200 ACK(op=12)
    被动回复窗口（群 5 分钟 / 单聊 60 分钟）足够；先回 200 保证 QQ 投递成功。
@@ -83,7 +83,7 @@ LQBot/
 
 解析顺序（resolveLevel）：
   1. 超级管理员（env, 3）
-  2. KV 显式覆盖 perm:<user_openid>（0-3）
+  2. KV 显式覆盖 perm:user:<user_openid>:level（0-3）
   3. 场景默认值
 
 场景规则：
@@ -109,7 +109,7 @@ LQBot/
 /permission（别名 /perm）[<user_openid> [<0-3>|reset]]   群聊+私聊   等级 3（超级管理员）
   - 无参：返回你当前场景权限
   - 1 参：返回该用户当前场景权限（含 KV 覆盖值）
-  - 2 参：把该用户权限设为 0-3（写入 KV perm:<user_openid>）；reset 清除覆盖
+  - 2 参：把该用户权限设为 0-3（写入 KV perm:user:<user_openid>:level）；reset 清除覆盖
 
 /debug [args]                           群聊+私聊   等级 0
   - 回显：原消息、参数、参数数量、用户 openid、用户权限、用户昵称、场景

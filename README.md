@@ -4,7 +4,7 @@
 
 - 接收 QQ 官方服务器 Webhook（群聊 @消息、私聊消息）
 - 通过 QQ OpenAPI（fetch）发送消息
-- KV 持久化（权限覆盖、token 缓存、消息去重）
+- KV 持久化（全局变量 + 场景变量，按模块命名空间隔离）
 - 挡位权限系统（3>2>1>0）+ 插件式命令系统
 
 ## 项目结构
@@ -93,46 +93,61 @@ const cmd: Command = { name, aliases, description, scenes, minLevel, handler };
 export default cmd;
 ```
 
-**第 2 步**：import 到 `src/lib/registry.ts` 的 `commands` 数组，然后在 QQ 侧执行 `npm run register` 同步指令面板。
+**第 2 步**：import 到 `src/lib/registry.ts` 的 `commands` 数组，然后执行 `npm run register` 同步指令面板。
 
 ### 在命令里使用持久化（KV）
 
-命令通过 **`ctx.cfg.storage`** 访问 KV，**不要**直接访问全局变量 `LQBOT`：
+命令通过 **`ctx.cfg.storage`** 访问 KV，**不要**直接访问全局变量 `LQBOT`。存储分两级作用域：
+
+- **全局变量**：整个机器人共享同一份值
+- **场景变量**：按群聊 openid / 用户 openid 隔离，不同 openid 的值互不影响
 
 ```typescript
 export async function handler(ctx: CommandContext): Promise<void> {
-  // 每个命令用自己的命名空间：实际 key = `hello:<key>`
-  const store = ctx.cfg.storage.ns('hello');
-
-  // KV 未绑定时 available === false：读恒返回 null、写/删静默跳过
-  if (!store.available) {
-    await ctx.reply('KV 未绑定，无法记录次数。');
+  const ns = ctx.cfg.storage.ns('hello');   // 本命令的命名空间
+  if (!ns.available) {                      // KV 未绑定：读恒 null、写/删静默跳过
+    await ctx.reply('KV 未绑定，无法记录。');
     return;
   }
 
-  const key = ctx.userOpenid || 'unknown';
-  const count = Number((await store.get(key)) || 0) + 1;
-  await store.set(key, String(count));          // 写字符串
-  await store.setJSON('last', { nick: ctx.nick, at: Date.now() }); // 写对象
-  // await store.del(key);                      // 删除
+  // 全局变量（整个机器人共享）-> hello:global:total
+  const total = Number((await ns.global.get('total')) || 0) + 1;
+  await ns.global.set('total', String(total));
 
-  await ctx.reply('hello, ' + (ctx.nick || 'friend') + '！你已来 ' + count + ' 次');
+  // 场景变量（按当前场景自动选群聊/用户）-> hello:group:<gid>:count 或 hello:user:<uid>:count
+  const scene = ns.scene(ctx);
+  const count = scene ? Number((await scene.get('count')) || 0) + 1 : 0;
+  if (scene) await scene.set('count', String(count));
+
+  // 也可显式指定：ns.group(ctx.groupOpenid) / ns.user(ctx.userOpenid)
+  const user = ns.user(ctx.userOpenid);     // openid 为空时返回 null
+  if (user) await user.setJSON('profile', { nick: ctx.nick, at: Date.now() });
+
+  await ctx.reply('本会话第 ' + count + ' 次，全局第 ' + total + ' 次');
 }
 ```
 
-存储接口：
+key 结构：
+
+| 作用域 | 访问方式 | 实际 key |
+| --- | --- | --- |
+| 全局变量 | `ns.global` | `<命名空间>:global:<key>` |
+| 群聊场景 | `ns.group(gid)` / `ns.scene(ctx)` | `<命名空间>:group:<group_openid>:<key>` |
+| 用户场景 | `ns.user(uid)` / `ns.scene(ctx)` | `<命名空间>:user:<user_openid>:<key>` |
+
+存取器接口（`ns.global` / `ns.group()` / `ns.user()` / `ns.scene()` 返回的 `store`）：
 
 | 方法 | 说明 |
 | --- | --- |
 | `store.get(key)` / `store.set(key, value)` | 读写字符串（读不存在返回 `null`） |
 | `store.getJSON<T>(key)` / `store.setJSON(key, value)` | 读写对象（自动 JSON 序列化/反序列化） |
 | `store.has(key)` / `store.del(key)` | 是否存在 / 删除 |
-| `store.available` / `store.namespace` | KV 是否绑定 / 命名空间名 |
+| `store.available` / `store.namespace` | KV 是否绑定 / 所属命名空间 |
 
 约定：
 
-- **命名空间隔离**：`storage.ns('<命令名>')` 的 key 实际为 `<命令名>:<key>`，各命令只读写自己的命名空间。
-- **全局命名空间** `storage.global`（前缀 `bot:`）只放跨模块基础设施（token 缓存、消息去重），业务数据不要放这里。
-- **未绑定 KV**：先判 `store.available` 再决定是否提示；读操作本身不会抛错。
+- **命名空间隔离**：`storage.ns('<命令名>')` 只读写自己的命名空间；`storage.infra`（前缀 `bot:`）是基础设施命名空间（token 缓存、消息去重），业务数据不要放。
+- **场景变量要判空**：`ns.group(gid)` / `ns.user(uid)` / `ns.scene(ctx)` 在 openid 缺失时返回 `null`。
+- **未绑定 KV**：先判 `ns.available`（或 `store.available`）再决定是否提示；读操作本身不会抛错。
 - **值都是字符串**：对象/数组请用 `setJSON` / `getJSON`。
-- 当前已有的 key：`bot:app_access_token`（token 缓存）、`bot:seen`（消息去重）、`perm:<openid>`（权限覆盖）。
+- 当前已有的 key：`bot:global:app_access_token`（token 缓存）、`bot:global:seen`（消息去重）、`perm:user:<openid>:level`（权限覆盖）。
