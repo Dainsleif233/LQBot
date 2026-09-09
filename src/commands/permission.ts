@@ -9,7 +9,7 @@ export const description = '权限管理';
 export const scenes: Scene[] = ['group', 'private'];
 export const minLevel = LEVELS.SUPER_ADMIN; // 3
 export async function handler(ctx: CommandContext): Promise<void> {
-  const { args, cfg, reply, level, scene, groupOpenid, memberOpenid } = ctx;
+  const { args, cfg, reply, level, scene, groupOpenid, memberOpenid, memberInfo, userOpenid } = ctx;
   const target = args[0];
   const value = args[1];
   // 无参数：返回当前用户场景权限
@@ -39,7 +39,15 @@ export async function handler(ctx: CommandContext): Promise<void> {
       }
     }
     // 无存储值 -> 场景默认
-    const resolved = await resolveLevel(cfg, { scene, userOpenid: target, groupOpenid, memberOpenid, memberInfo: null });
+    // 只有查询调用者本人时才带上其群成员信息；查别人时无法得知对方的群角色，交给场景默认值
+    const isSelf = !!userOpenid && target === userOpenid;
+    const resolved = await resolveLevel(cfg, {
+      scene,
+      userOpenid: target,
+      groupOpenid,
+      memberOpenid: isSelf ? memberOpenid : null,
+      memberInfo: isSelf ? memberInfo : null,
+    });
     await reply('用户 ' + target + ' 当前场景权限为：' + resolved + '（' + levelName(resolved) + '，未单独设置）');
     return;
   }
