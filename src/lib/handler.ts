@@ -4,6 +4,7 @@ import { signWebhookChallenge, verifyWebhookSignature } from './crypto.js';
 import { resolveLevel, LEVELS } from './permissions.js';
 import { parseCommand, findCommand } from './registry.js';
 import { createReply } from './reply.js';
+import { isDuplicate } from './dedupe.js';
 import * as qq from './qq.js';
 import type { CommandContext, Config, EdgeContext, MemberInfo, Scene } from './types.js';
 const jsonHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -74,18 +75,9 @@ async function processEvent(cfg: Config, payload: any): Promise<void> {
   // 被动回复用 msg_id（= 接收到的消息 id d.id，形如 ROBOT1.0_...），不是 event_id。
   // event.id 是事件 id（C2C_MESSAGE_CREATE:...），QQ 被动回复不认它。
   const messageId = d.id || (event && event.id) || '';
-  // 去重：QQ 可能重复投递同一 msg_id，用 KV 记录已处理（10 分钟窗口手动过期）。
-  if (cfg.kv && messageId) {
-    try {
-      const seen = await cfg.kv.get('seen:' + messageId);
-      if (seen) {
-        const ts = Number(seen);
-        if (!Number.isNaN(ts) && Date.now() - ts < 600_000) {
-          return; // 10 分钟内视为重复
-        }
-      }
-      await cfg.kv.put('seen:' + messageId, String(Date.now()));
-    } catch (_) { /* KV 不可用则跳过去重 */ }
+  // 去重：QQ 可能重复投递同一 msg_id，窗口期内视为重复并跳过（实现见 lib/dedupe.ts）。
+  if (await isDuplicate(cfg, messageId)) {
+    return;
   }
   // 解析发送者身份
   let userOpenid: string | null = null;
