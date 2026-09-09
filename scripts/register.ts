@@ -14,7 +14,9 @@
 //       沙箱/旧域可显式设 QQ_API_BASE 覆盖（如 https://sandbox.api.sgroup.qq.com）。
 // 运行：npm run register   （即 npx tsx scripts/register.ts；或 node --experimental-strip-types scripts/register.ts）
 
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+// 直接导入命令注册表：与运行时同一数据源，避免正则漏解析导致面板与实现不一致
+import { commands } from '../src/lib/registry.js';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -45,32 +47,15 @@ interface Cmd {
   description: string;
   minLevel: number;
 }
-const LEVELS: Record<string, number> = { SUPER_ADMIN: 3, GLOBAL_ADMIN: 2, GROUP_ADMIN: 1, USER: 0 };
+const API_GAP_MS = 350; // 面板写操作之间的间隔，避免撞 10 QPM 限频
 
 function collectCommands(): Cmd[] {
-  const dir = join(ROOT, 'src', 'commands');
-  const cmds: Cmd[] = [];
-  for (const f of readdirSync(dir).filter((n) => n.endsWith('.ts')).sort()) {
-    const src = readFileSync(join(dir, f), 'utf8');
-    const name = src.match(/export const name = '([^']+)'/)?.[1];
-    if (!name) continue;
-    const description = (src.match(/export const description = '([^']*)'/)?.[1] || '').slice(0, 30);
-    const minLevelRaw = (src.match(/export const minLevel = ([^;]+);/)?.[1] || '0').trim();
-    let minLevel: number;
-    if (/^\d+$/.test(minLevelRaw)) {
-      minLevel = parseInt(minLevelRaw, 10);
-    } else {
-      // 兼容 `LEVELS.SUPER_ADMIN` 这类写法：剥掉 `LEVELS.` 前缀再查表
-      const key = minLevelRaw.replace(/^LEVELS\./, '').trim();
-      minLevel = LEVELS[key] ?? 0;
-    }
-    const aliasesM = src.match(/export const aliases(?::\s*string\[\])? = \[([^\]]*)\]/);
-    const aliases = aliasesM
-      ? aliasesM[1].split(',').map((s) => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean)
-      : [];
-    cmds.push({ name, aliases, description, minLevel });
-  }
-  return cmds;
+  return commands.map((c) => ({
+    name: c.name,
+    aliases: c.aliases || [],
+    description: String(c.description || '').slice(0, 30), // 面板元素 desc 上限 30 字符
+    minLevel: c.minLevel,
+  }));
 }
 
 // ---------- QQ OpenAPI ----------
@@ -130,6 +115,7 @@ async function deleteAllPanels(apiBase: string, token: string, scope: string): P
   for (const r of records) {
     await api(apiBase, token, 'DELETE', '/v2/panels/' + r.panel_id);
     console.log('[' + scope + '] 已删除面板 ' + r.panel_id);
+    await sleep(API_GAP_MS);
   }
 }
 
@@ -194,6 +180,7 @@ async function rollback(apiBase: string, token: string, scope: string, originals
     }
     await api(apiBase, token, 'POST', '/v2/panels', body);
     console.log('[' + scope + '] 已还原原有面板（remark=' + (o.panel?.remark || '(无)') + '）');
+    await sleep(API_GAP_MS);
   }
 }
 
@@ -212,6 +199,7 @@ async function syncScope(apiBase: string, token: string, scope: string, cmds: Cm
       const out = await api(apiBase, token, 'POST', '/v2/panels', body);
       ids.push(out?.panel_id ?? '(未返回)');
       total += body.panel.items.length;
+      await sleep(API_GAP_MS);
     }
     console.log('[' + scope + '] 已创建 ' + bodies.length + ' 个指令面板 ' + ids.join(',') + '（元素数=' + total + '）');
   } catch (e) {
@@ -242,15 +230,21 @@ async function main(): Promise<void> {
   console.log('同步命令：' + allNames.join('、'));
 
   const token = await getAppAccessToken(appId, appSecret);
+  let failed = false;
   for (const scope of SCOPES) {
     try {
       await syncScope(apiBase, token, scope, cmds, superAdminOpenid);
     } catch (e) {
+      failed = true;
       console.error('[' + scope + '] 同步出错，已回滚；继续下一场景。');
     }
     await sleep(500);
   }
   console.log('完成。');
+  if (failed) {
+    console.error('存在场景同步失败，退出码 1。');
+    process.exitCode = 1;
+  }
 }
 
 main().catch((e) => {
