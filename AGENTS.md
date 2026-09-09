@@ -1,9 +1,10 @@
 # AGENTS.md — LQBot
 
-面向在本仓库工作的 AI Agent / 协作者：项目背景、关键约定、命令与坑位。改动前先读这份文件与 README.md。
+面向在本仓库协助开发**框架**的 AI Agent / 协作者：项目背景、关键约定、命令与坑位。改动前先读这份文件与 README.md。
+给机器人**编写插件（命令）**的开发指南见 [docs/PLUGIN-DEV.md](docs/PLUGIN-DEV.md)，不在本文件范围内。
 
 ## 项目简介
-LQBot：跑在 EdgeOne 边缘函数上的无服务器 QQ 官方机器人。接收 QQ 官方 Webhook（群 @消息、私聊消息），通过 fetch 调用 QQ OpenAPI 发送消息，用 KV 数据库持久化。不考虑频道（Guild）场景。完整说明见 README.md 与 docs/SUMMARY.md。
+LQBot：跑在 EdgeOne 边缘函数上的无服务器 QQ 官方机器人。接收 QQ 官方 Webhook（群 @消息、私聊消息），通过 fetch 调用 QQ OpenAPI 发送消息，用 KV 数据库持久化。不考虑频道（Guild）场景。完整说明见 README.md 与 docs/。
 
 ## 目录结构
 
@@ -11,7 +12,7 @@ LQBot：跑在 EdgeOne 边缘函数上的无服务器 QQ 官方机器人。接�
 LQBot/
 ├── edge-functions/              # 仅对外暴露的接口
 │   └── webhook.ts               # POST /webhook 入口（onRequest）
-├── src/                         # 内部模块（边缘构建打包进函数）
+├── src/                         # 框架内部模块（边缘构建打包进函数）
 │   ├── lib/
 │   │   ├── config.ts            # 运行时配置（从 env + globalThis.LQBOT 构建）
 │   │   ├── storage.ts           # KV 持久化封装（命名空间 × 作用域：global/group/user）
@@ -23,13 +24,10 @@ LQBot/
 │   │   ├── registry.ts          # 命令注册 + 解析 + 别名
 │   │   ├── reply.ts             # 按场景构造被动回复
 │   │   └── handler.ts           # Webhook 主逻辑（验签/地址校验/分发/去重/权限/执行）
-│   └── commands/
-│       ├── permission.ts        # /permission（别名 /perm）权限管理，level 3
-│       └── debug.ts             # /debug 调试命令，level 0
+│   └── commands/                # 插件命令（permission/debug），开发指南见 docs/PLUGIN-DEV.md
 ├── scripts/
 │   └── register.ts             # 指令面板同步脚本（npm run register）
-├── docs/
-│   └── SUMMARY.md
+├── docs/                        # 项目文档（DEPLOY / PLUGIN-DEV / SUMMARY）
 ├── .env.example
 ├── package.json
 ├── README.md
@@ -56,6 +54,35 @@ LQBot/
 - 环境变量见 .env.example：APP_ID / APP_SECRET（或 WEBHOOK_SECRET）/ SUPER_ADMIN_OPENID / QQ_API_BASE / VERIFY_EVENT_SIGNATURE / CHECK_GROUP_ADMIN / GROUP_SCENE_LEVEL
 - 部署前先在 EdgeOne 控制台开通 KV 并绑定命名空间，**变量名设为 LQBOT**。
 
+## EdgeOne Skills（官方 AI Agent 技能包）
+
+官方文档：https://cloud.tencent.com/document/product/1552/129329
+
+Skills 是一套社区开放规范，以结构化 Markdown 为 AI Agent 注入特定领域的专业知识与操作流程；
+支持 Claude Code、CodeBuddy、Cursor 等所有支持 Skills 机制的 AI 编程工具。
+
+- **技能包**：`edgeone-makers-tools`（TencentEdgeOne/edgeone-makers-tools），按领域组织 8 个子 Skill，Agent 按任务自动匹配加载：
+
+  | 子 Skill | 覆盖范围 |
+  |---|---|
+  | makers-agents | AI Agent 开发（DeepAgents、LangGraph、Claude Agent SDK、OpenAI Agents、CrewAI） |
+  | makers-edge-functions | Edge Functions（V8 轻量运行时）——**本项目核心** |
+  | makers-cloud-functions | Cloud Functions（Node.js / Go / Python） |
+  | makers-storage | KV 与 Blob 存储——**本项目核心** |
+  | makers-middleware | 中间件（鉴权、重写、路由） |
+  | makers-deploy | 部署项目到 EdgeOne |
+  | makers-cli | EdgeOne CLI 命令参考 |
+  | makers-recipes | 项目结构模板与脚手架 |
+
+- **安装**：`npx skills add TencentEdgeOne/edgeone-makers-tools`；访问 GitHub 受限时走 SkillHub 商店
+  （先按 https://skillhub.cn/install/skillhub.md 装 CLI，再装 edgeone-makers-tools 技能）。
+- **使用**：用自然语言描述需求，Agent 自动判断并执行；描述里带上明确关键词（「EdgeOne Makers」「Edge Functions」「KV」「中间件」等）触发更准。
+  开发类流程：需求分析（选 Agent 框架 / Edge / Cloud Functions / 中间件）→ 按平台规范生成代码 → `edgeone makers dev` 本地调试（默认端口 8088）。
+- **登录**：本地桌面环境自动走浏览器登录；远程服务器用 API Token（中国站 / 国际站账号体系相互独立，按账号所属站点选择）。
+  **API Token 是账户级权限，切勿提交到代码仓库。**
+- **与本项目的对应关系**：LQBot = Edge Functions（webhook 入口 + 命令处理）+ KV（LQBOT 绑定），
+  开发/排障重点参考 makers-edge-functions 与 makers-storage；部署与 CLI 问题看 makers-deploy、makers-cli。
+
 ## 权限系统
 等级（挡位进阶，高等级拥有低等级全部权限）：
   3 超级管理员  来自 env SUPER_ADMIN_OPENID
@@ -65,11 +92,11 @@ LQBot/
 解析顺序（resolveLevel）：env 超管 → KV 显式覆盖 → 场景默认。私聊按群管(1)处理；群聊默认 GROUP_SCENE_LEVEL，开 CHECK_GROUP_ADMIN 时按群成员 role 识别真实群管。详见 permissions.ts。
 清除覆盖：/permission <openid> reset（删除 KV perm:user:<openid>:level，回到场景默认）。
 
-## 命令系统
-- 触发：群聊 @机器人 消息、私聊消息。格式 /<command> [args]。
-- 新增命令：在 src/commands/ 新建模块，导出 name / aliases / description / scenes(['group','private']) / minLevel / handler(ctx)，并以 export default { … } 导出；再 import 到 src/lib/registry.ts 的 commands 数组。
+## 命令系统（框架侧）
+- 触发：群聊 @机器人 消息、私聊消息。格式 /<command> [args]，解析在 registry.ts（剥离 @机器人 前缀、小写匹配、含别名）。
+- 命令注册表：src/lib/registry.ts 的 commands 数组，插件模块从这里挂载（开发指南见 docs/PLUGIN-DEV.md）。
 - handler 接收的 ctx 包含：args, raw, original, scene, userOpenid, memberOpenid, groupOpenid, nick, level, memberInfo, event, messageId, cfg, qq, reply, deny。
-- 持久化：命令只用 ctx.cfg.storage.ns('<命令名>')——.global 为全局变量、.group(gid)/.user(uid)/.scene(ctx) 为场景变量（按 openid 隔离，openid 缺失返回 null）；storage.infra（前缀 bot:）仅限跨模块基础设施。接口 get/set/del/has/getJSON/setJSON，未绑定时 available=false。详见 src/lib/storage.ts 与 README「新增命令」。
+- 持久化：命令经 ctx.cfg.storage 访问 KV（两级：命名空间 × 作用域，见关键技术约定 5）；用法与示例见 docs/PLUGIN-DEV.md。
 - 权限按挡位比较（level >= minLevel 通过；否则调用 ctx.deny() 回复）。反馈由 reply 按场景被动发送。
 
 ## 验证
