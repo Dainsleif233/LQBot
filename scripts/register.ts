@@ -141,14 +141,15 @@ function buildNewPanels(cmds: Cmd[], superAdminOpenid: string, scope: string): a
   if (general.length) {
     bodies.push({ scope, target_type: 'all', panel: { items: toItems(general), remark: REMARK } });
   }
-  // 等级>=3 的命令仅在私聊(c2c)面板按用户 openid 精确限定到超级管理员；群聊不注册
+  // 等级>=3 的命令仅在私聊(c2c)面板按用户 openid 精确限定到超级管理员；群聊不注册。
+  // 注意：QQ 端对被 specific 面板命中的用户（超管）可能只展示该面板、隐藏 all 面板，
+  // 因此管理员面板放入「全部命令」，确保超管在私聊也能看到通用命令（如 /debug）。
   if (scope === 'c2c') {
-    const admin = cmds.filter((c) => c.minLevel >= 3);
-    if (admin.length) {
+    if (cmds.length) {
       const body: any = {
         scope,
         target_type: 'all',
-        panel: { items: toItems(admin), remark: ADMIN_REMARK },
+        panel: { items: toItems(cmds), remark: ADMIN_REMARK },
       };
       if (superAdminOpenid) {
         body.target_type = 'specific';
