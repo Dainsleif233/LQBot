@@ -1,7 +1,7 @@
 // QQ OpenAPI 客户端：换取 access_token、发送群/单聊消息、查询群成员。
 // access_token 缓存在 KV（避免频繁换取，token 有效期通常 7200s）。
 import type { Config, MemberInfo } from './types.js';
-// token 缓存在全局命名空间：实际 key = `bot:app_access_token`
+// token 缓存在全局命名空间：实际 key = `bot:global:app_access_token`
 const TOKEN_KEY = 'app_access_token';
 interface TokenCache { access_token?: string; expire_at?: number; }
 export async function getAccessToken(cfg: Config): Promise<string> {

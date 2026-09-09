@@ -1,6 +1,7 @@
 // 权限系统：挡位进阶，3 > 2 > 1 > 0。
 // 解析顺序：超级管理员(env,3) > KV 显式覆盖(0-3) > 场景默认值。
 import type { Config, Scene, MemberInfo } from './types.js';
+import { getGroupMember } from './qq.js';
 export const LEVELS = { SUPER_ADMIN: 3, GLOBAL_ADMIN: 2, GROUP_ADMIN: 1, USER: 0 } as const;
 // 权限覆盖的 KV 命名空间：实际 key = `perm:<user_openid>`
 export const PERM_NS = 'perm';
@@ -58,8 +59,7 @@ export async function resolveLevel(cfg: Config, opts: ResolveOpts): Promise<numb
     let member = memberInfo;
     if (!member && groupOpenid && memberOpenid) {
       try {
-        const qq = await import('./qq.js');
-        member = await qq.getGroupMember(cfg, groupOpenid, memberOpenid);
+        member = await getGroupMember(cfg, groupOpenid, memberOpenid);
       } catch (_) { member = null; }
     }
     if (member) {
