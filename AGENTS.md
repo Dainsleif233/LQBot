@@ -97,7 +97,7 @@ Skills 是一套社区开放规范，以结构化 Markdown 为 AI Agent 注入�
 - 触发：群聊 @机器人 消息、私聊消息。格式 /<command> [args]，解析在 registry.ts（剥离 @机器人 前缀、小写匹配、含别名）。
 - 命令编写：src/lib/define.ts 的 defineCommand（export default defineCommand({...})；aliases/scenes 有默认值，分组节点可省略 handler 自动回用法）。命令注册表 src/lib/registry.ts 的 commands 数组是唯一数据源（register.ts 也读它）。详见 docs/PLUGIN-DEV.md。
 - 子命令：命令可声明 subcommands（如 /game add），子命令可单独设置 minLevel 覆盖主命令；命中时 ctx.sub 为子命令名、ctx.args 不含子命令名，权限按子命令判断（指令面板暂不注册子命令）。详见 docs/PLUGIN-DEV.md。
-- handler 接收的 ctx 包含：args, sub, raw, original, scene, userOpenid, memberOpenid, groupOpenid, nick, level, memberInfo, event, messageId, cfg, qq, reply, deny。
+- handler 接收的 ctx 包含：args, sub, attachments, raw, original, scene, userOpenid, memberOpenid, groupOpenid, nick, level, memberInfo, event, messageId, cfg, qq, reply, replyMarkdown, replyMedia, deny。
 - 持久化：命令经 ctx.cfg.storage 访问 KV（两级：命名空间 × 作用域，见关键技术约定 5）；用法与示例见 docs/PLUGIN-DEV.md。
 - 权限按挡位比较（level >= minLevel 通过；否则调用 ctx.deny() 回复）。反馈由 reply 按场景被动发送。
 
@@ -110,8 +110,11 @@ Skills 是一套社区开放规范，以结构化 Markdown 为 AI Agent 注入�
 - getAppAccessToken 请求体字段名是 **appId**（不是 clientId）；改用 clientId 会返回 {code:100007,"appid invalid"}，即使凭证正确。当前 body 同时带 appId 与 clientId 以兼容旧文档。
 - 指令面板接口 POST /v2/panels 频率 10 QPM、每机器人最多 20 个；元素 desc 最多 30 字符（超长直接 40030013 失败）。群聊面板 target 只能按群(group_openids)限定、无法按用户精确限定，故等级≥3 命令只在私聊(c2c)面板注册（见 scripts/register.ts 的 buildNewPanels）。私聊「管理员面板」包含全部命令且仅超管可见——QQ 对被 specific 面板命中的用户可能只展示该面板、隐藏 all 面板，否则超管私聊看不到通用命令。
 - 被动回复（发群/发私聊消息）用请求体字段 **msg_id**（值=接收到的消息 id d.id，形如 ROBOT1.0_...）。若误用 event_id 或误填顶层事件 id（C2C_MESSAGE_CREATE:...）会报 40034025「event_id 无效」或 40034027「event_id 对应事件不能回复消息」。
+- **同一 msg_id 多次被动回复必须递增 msg_seq**：相同 msg_id+msg_seq 重复发送会被 QQ 拒绝（实测：第二条起静默失败，无任何报错返回）。窗口内额度：单聊 4 次（60 分钟）/ 群聊 5 次（5 分钟）。reply.ts 已自动递增（reply/replyMarkdown/replyMedia 共用计数器），命令里多次 await ctx.reply* 即可。
 - 群成员接口 GET /v2/groups/{group_openid}/members（及 role/nick 字段）官方文档未完整开放；permissions.ts 的 isGroupAdminRole（当前：role 含 admin/owner/群主 或 数字>=2 判群管）需按实测校准。
 - 主动消息限频（群/单聊 每月 4 条）由 QQ 侧控制；本项目优先被动回复。
+- Markdown（msg_type=2）已全量开放：单聊只发不收、群聊收发。富媒体（msg_type=7）上传接口单聊/群聊相互隔离，file_info 有效期 ttl（秒，0=长期；replyMedia 随用随传、不缓存）；srv_send_msg=true 会在上传时直接发送并占用每月 4 条主动消息额度（本项目固定 false）；url 仅接受 http(s)。接收侧：用户发来的媒体在 ctx.attachments，其 url 可能为 base64 data URL——「收到即转发」需自行转存公网地址（files 不收 data:，分片上传待支持）。
+- **SVG 不支持（实测）**：当图片（fileType 1）平台直接拒绝（40034002「富媒体文件格式不支持」）；当文件（fileType 4）可发（文件卡片）；Markdown 内嵌 SVG 不渲染。需要发 SVG 素材请先转成 PNG/JPG。
 - GROUP_SCENE_LEVEL 非法值会被 clamp 到 0-3 并回退 1（config.ts）；不校验的话 NaN 参与 `level < minLevel` 恒为 false，会导致权限 fail-open。
 - .env 含官方文档示例密钥，仅本地签名验证用，上线请替换为真实凭证且勿提交（.gitignore 已忽略 .env 与 .edgeone）。
 

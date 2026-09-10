@@ -32,7 +32,8 @@ export default defineCommand({
 | 字段 | 说明 |
 | --- | --- |
 | `name` / `args` / `raw` / `original` | 解析后的命令名、参数、原始文本 |
-| `sub` | 命中的子命令名（未命中子命令时为 `null`） |
+| `sub` | 命中的子命令链（多级以空格连接，如 'room create'；未命中子命令时为 `null`） |
+| `attachments` | 用户消息携带的富媒体附件（`contentType`/`filename`/`url`/`raw`；无则空数组） |
 | `scene` | `'group'` / `'private'` |
 | `userOpenid` / `memberOpenid` / `groupOpenid` | 发送者 / 成员 / 群 openid |
 | `nick` | 昵称（可能为空） |
@@ -40,7 +41,7 @@ export default defineCommand({
 | `memberInfo` | 群成员信息（可能为 null） |
 | `event` / `messageId` | 原始事件、消息 id |
 | `cfg` / `qq` | 配置、QQ 客户端 |
-| `reply(content)` | 按场景被动回复 |
+| `reply(content)` / `replyMarkdown(md)` / `replyMedia(type, url)` | 文本 / Markdown（msg_type=2）/ 富媒体（msg_type=7）被动回复 |
 | `deny()` | 权限不足时的标准拒绝回复 |
 
 ## 3. 权限
@@ -162,11 +163,42 @@ key 结构：
 - **值都是字符串**：对象/数组请用 `setJSON` / `getJSON`。
 - 当前已有的 key：`bot:global:app_access_token`（token 缓存）、`bot:global:seen`（消息去重）、`perm:user:<openid>:level`（权限覆盖）。
 
-## 6. 指令面板
+## 6. Markdown 与富媒体回复
+
+| 方法 | 行为 |
+| --- | --- |
+| `ctx.reply(content)` | 文本（msg_type=0，群聊开头自动加换行） |
+| `ctx.replyMarkdown(content)` | Markdown（msg_type=2，body `markdown: { content }`） |
+| `ctx.replyMedia(fileType, url)` | 先 URL 上传拿 `file_info`（`srv_send_msg=false`），再富媒体发送（msg_type=7） |
+
+`fileType`：`1` 图片(jpg/png，软限 20MB) / `2` 视频(mp4，软限 30MB) / `3` 语音(silk) / `4` 文件(任意，软限 200MB)。
+
+示例：
+
+```typescript
+await ctx.replyMarkdown('# 战报\n- 第一名：**张三**');
+await ctx.replyMedia(1, 'https://example.com/result.png');   // 图片
+await ctx.replyMedia(4, 'https://example.com/report.pdf');   // 文件
+```
+
+注意：
+
+- Markdown 已对所有机器人开放（无需申请模板）；**单聊只发不收，群聊收发均支持**。
+- 富媒体上传接口**单聊/群聊相互隔离**，`file_info` 不能跨场景复用，有效期为 `ttl`（秒，**0=可长期使用**）——`replyMedia` 随用随传、不缓存。
+- 上传固定 `srv_send_msg=false`（不占每月 4 条主动消息额度，被动窗口内正常携带 msg_id）。
+- 上传 `url` 必须以 http(s):// 开头（`uploadFile` 会先校验），`data:` 或本地路径会被 QQ 拒且报错含义模糊。
+- 一个事件内的被动回复次数有限（单聊 4 次 / 群聊 5 次，含错误兜底回复），写 handler 前先规划好总回复条数。
+- 语音格式文档有出入（概览写 silk/mp3/wav/ogg，file_type 表写 silk），以平台实测为准。
+- **SVG 不支持**（实测）：当图片（fileType 1）会被拒（40034002「富媒体文件格式不支持」），当文件（fileType 4）可发（文件卡片）；Markdown 内嵌 SVG 不渲染。需要发 SVG 时先转成 PNG/JPG。
+
+接收侧：用户发来的图片/视频/语音/文件在 **`ctx.attachments`**（`contentType` / `filename` / `url` / `raw`，字段名已容错归一化）；消息无文本时不会触发命令，插件可在有文本的命令里读取 `ctx.attachments`。
+注意：附件里的 `url` 可能为 base64 data URL（平台下发实测），而 files 上传接口仅接受 http(s) URL——**「收到即转发」当前做不到**，需自行转存到公网地址（或等待分片上传支持）。
+
+## 7. 指令面板
 
 - 新增/修改命令后执行 `npm run register` 同步面板（先快照再重建，出错自动回滚）。
 - 等级 < 3 → 全量面板（所有人可见）；等级 ≥ 3 → 仅私聊「管理员面板」（仅超管可见，内含全部命令）。
 
-## 7. 调试
+## 8. 调试
 
 `/debug [args]`（等级 0）：回显原消息、参数、参数数量、用户 openid、用户权限、用户昵称。
