@@ -2,11 +2,11 @@
 import { createConfig } from './config.js';
 import { signWebhookChallenge, verifyWebhookSignature } from './crypto.js';
 import { resolveLevel, LEVELS, levelName } from './permissions.js';
-import { parseCommand, findCommand } from './registry.js';
+import { parseCommand, findCommand, findSubCommand } from './registry.js';
 import { createReply } from './reply.js';
 import { isDuplicate } from './dedupe.js';
 import * as qq from './qq.js';
-import type { CommandContext, Config, EdgeContext, MemberInfo, Scene } from './types.js';
+import type { Command, CommandContext, Config, EdgeContext, MemberInfo, Scene, SubCommand } from './types.js';
 const jsonHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
 export async function handleWebhook(context: EdgeContext): Promise<Response> {
   const { request, env, waitUntil } = context;
@@ -119,12 +119,31 @@ async function processEvent(cfg: Config, payload: any): Promise<void> {
   if (cmd.scenes && cmd.scenes.indexOf(scene) === -1) {
     return; // 该命令不适用于当前场景
   }
+  // 子命令解析（多级）：命中已声明的子命令时，权限与 handler 都以最深命中节点为准；
+  // 分组节点（未声明 handler）进入时走用法兜底，不继承祖先 handler；未命中则走主命令。
+  let minLevel = cmd.minLevel;
+  let handler = cmd.handler;
+  let rest = parsed.args;
+  let node: Command | SubCommand = cmd;
+  const subs: string[] = [];
+  while (rest.length > 0) {
+    const sc = findSubCommand(node, rest[0]);
+    if (!sc) break;
+    subs.push(sc.name);
+    minLevel = sc.minLevel ?? minLevel; // 子级未设置则继承父级生效等级，设置了则覆盖
+    handler = sc.handler; // 不继承祖先 handler：分组节点（无 handler）走用法兜底
+    node = sc;
+    rest = rest.slice(1);
+  }
+  const sub = subs.length ? subs.join(' ') : null;
+  const target = subs.length ? [cmd.name, ...subs].join(' ') : cmd.name;
   // 解析权限
   const level = await resolveLevel(cfg, { scene, userOpenid, groupOpenid, memberOpenid, memberInfo });
   const reply = createReply(cfg, event, scene);
   const ctx: CommandContext = {
     name: parsed.name,
-    args: parsed.args,
+    sub,
+    args: rest,
     raw: parsed.raw,
     original: (typeof d.content === 'string' ? d.content : '').trim(),
     scene,
@@ -141,16 +160,24 @@ async function processEvent(cfg: Config, payload: any): Promise<void> {
     reply,
     // 便捷：需要更高等级时的拒绝回复
     async deny() {
-      return reply('权限不足：需要等级 ' + cmd.minLevel + '（' + levelName(cmd.minLevel) + '），当前等级 ' + level);
+      return reply('权限不足：' + target + ' 需要等级 ' + minLevel + '（' + levelName(minLevel) + '），当前等级 ' + level);
     },
   };
   // 权限检查（挡位进阶：level >= minLevel 即通过）
-  if (level < cmd.minLevel) {
+  if (level < minLevel) {
     try { await ctx.deny(); } catch (e) { console.error('[LQBot] deny reply failed:', (e as Error).message); }
     return;
   }
+  if (!handler) {
+    // 分组节点（未声明 handler）：自动回复子命令用法
+    const kidList = node.subcommands || [];
+    if (!kidList.length) console.error('[LQBot] 命令 /' + target + ' 既无 handler 也无子命令，疑似漏写 handler');
+    const children = kidList.map((c) => '• /' + target + ' ' + c.name + ' — ' + c.description).join('\n');
+    try { await reply('用法：/' + target + (children ? '\n' + children : '')); } catch (e) { console.error('[LQBot] usage reply failed:', (e as Error).message); }
+    return;
+  }
   try {
-    await cmd.handler(ctx);
+    await handler(ctx);
   } catch (e) {
     console.error('[LQBot] command handler error:', e);
     try { await reply('命令执行出错：' + (e as Error).message); } catch (e2) { console.error('[LQBot] reply failed:', e2); }

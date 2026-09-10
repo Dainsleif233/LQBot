@@ -74,6 +74,8 @@ export interface MemberInfo {
 
 export interface CommandContext {
   name: string;
+  /** 命中的子命令链（多级以空格连接，如 'room create'；未命中时为 null） */
+  sub: string | null;
   args: string[];
   raw: string;
   original: string;
@@ -92,13 +94,29 @@ export interface CommandContext {
   deny: () => Promise<void>;
 }
 
+/** 子命令：/主命令 <子命令> [args]，支持多级嵌套。可单独设置权限，未设置时继承父级生效等级 */
+export interface SubCommand {
+  name: string;
+  aliases?: string[];
+  description: string;
+  /** 生效权限等级；未设置时继承父级生效等级 */
+  minLevel?: number;
+  /** 省略时该节点为分组节点：进入时自动回复子命令用法 */
+  handler?: (ctx: CommandContext) => Promise<void>;
+  /** 更深一级的子命令 */
+  subcommands?: SubCommand[];
+}
+
 export interface Command {
   name: string;
   aliases: string[];
   description: string;
   scenes: Scene[];
   minLevel: number;
-  handler: (ctx: CommandContext) => Promise<void>;
+  /** 子命令（可选），支持多级嵌套：如 /game room create */
+  subcommands?: SubCommand[];
+  /** 省略时自动回复子命令用法（需要声明 subcommands） */
+  handler?: (ctx: CommandContext) => Promise<void>;
 }
 
 export interface QqApi {
