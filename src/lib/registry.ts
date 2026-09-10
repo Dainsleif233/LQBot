@@ -2,8 +2,9 @@
 import type { Command, SubCommand } from './types.js';
 import permissionCmd from '../commands/permission.js';
 import debugCmd from '../commands/debug.js';
+import gamesCmd from '../commands/games.js';
 // 每个命令模块 export default defineCommand({...})（见 src/lib/define.ts），在此挂载进 commands 数组。
-export const commands: Command[] = [permissionCmd, debugCmd];
+export const commands: Command[] = [permissionCmd, debugCmd, gamesCmd];
 export interface ParsedCommand {
   name: string;
   args: string[];
