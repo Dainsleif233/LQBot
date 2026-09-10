@@ -4,34 +4,35 @@
 
 ## 1. 命令模块
 
-在 `src/commands/` 新建模块，导出字段并以 `export default` 导出：
+在 `src/commands/` 新建模块，用 `defineCommand` 声明并以 `export default` 导出
+（`aliases` 缺省为空、`scenes` 缺省为群+私聊；`minLevel` 必填，显式声明权限避免默认放开）：
 
 ```typescript
 // src/commands/hello.ts
 import { LEVELS } from '../lib/permissions.js';
-import type { Command, CommandContext, Scene } from '../lib/types.js';
+import { defineCommand } from '../lib/define.js';
+import type { CommandContext } from '../lib/types.js';
 
-export const name = 'hello';
-export const aliases = ['hi'];          // 可选，最多 8 字
-export const description = '打招呼';     // 最多 15 字
-export const scenes: Scene[] = ['group', 'private'];
-export const minLevel = LEVELS.USER;
-
-export async function handler(ctx: CommandContext): Promise<void> {
-  await ctx.reply('hello, ' + (ctx.nick || 'friend'));
-}
-
-const cmd: Command = { name, aliases, description, scenes, minLevel, handler };
-export default cmd;
+export default defineCommand({
+  name: 'hello',
+  aliases: ['hi'],
+  description: '打招呼',
+  minLevel: LEVELS.USER,
+  async handler(ctx: CommandContext): Promise<void> {
+    await ctx.reply('hello, ' + (ctx.nick || 'friend'));
+  },
+});
 ```
 
 然后 import 到 `src/lib/registry.ts` 的 `commands` 数组，并执行 `npm run register` 同步指令面板。
+注意：具名导出（`export const name = …`）已不再被读取，只有 default 导出生效。
 
 ## 2. 命令上下文（ctx）
 
 | 字段 | 说明 |
 | --- | --- |
 | `name` / `args` / `raw` / `original` | 解析后的命令名、参数、原始文本 |
+| `sub` | 命中的子命令名（未命中子命令时为 `null`） |
 | `scene` | `'group'` / `'private'` |
 | `userOpenid` / `memberOpenid` / `groupOpenid` | 发送者 / 成员 / 群 openid |
 | `nick` | 昵称（可能为空） |
@@ -47,7 +48,64 @@ export default cmd;
 - `minLevel`：挡位进阶（3>2>1>0）。`ctx.level >= minLevel` 才执行 handler，否则框架自动调用 `ctx.deny()`。
 - 解析顺序：env 超管 → KV 覆盖（`perm:user:<openid>:level`）→ 场景默认。
 
-## 4. 持久化（KV）
+## 4. 子命令（可选）
+
+一个命令可以声明子命令，让 `/game add` 这类形式**单独设置权限，覆盖主命令的 minLevel**：
+
+```typescript
+// src/commands/game.ts
+import { LEVELS } from '../lib/permissions.js';
+import { defineCommand } from '../lib/define.js';
+import type { CommandContext } from '../lib/types.js';
+
+export default defineCommand({
+  name: 'game',
+  description: '游戏',
+  minLevel: LEVELS.USER,             // /game 本体：等级 0
+  // 主 handler 可省略：省略时 /game 自动回复子命令用法列表
+  async handler(ctx: CommandContext): Promise<void> {
+    await ctx.reply('用法：/game add <name> | /game room');
+  },
+  subcommands: [
+    {
+      name: 'add',
+      aliases: ['new'],
+      description: '添加一局游戏',
+      minLevel: LEVELS.GLOBAL_ADMIN, // /game add：等级 2（覆盖主命令的 0）
+      async handler(ctx: CommandContext): Promise<void> {
+        // ctx.sub === 'add'；ctx.args 已去掉子命令名
+        await ctx.reply('添加游戏：' + ctx.args.join(' '));
+      },
+    },
+    {
+      name: 'room',                  // 分组节点：省略 handler，/game room 自动回用法
+      description: '房间管理',
+      subcommands: [
+        {
+          name: 'create',
+          description: '创建房间',
+          minLevel: LEVELS.GLOBAL_ADMIN, // /game room create：等级 2
+          async handler(ctx: CommandContext): Promise<void> {
+            await ctx.reply('创建房间：' + ctx.args.join(' '));
+          },
+        },
+      ],
+    },
+  ],
+});
+```
+
+规则：
+
+- **多级匹配**：`/game room create` 逐级向下匹配已声明的子命令；中间节点（如 `room`）可省略
+  `handler`，此时进入该节点会**自动回复其子命令用法**（如 `用法：/game room` + 子命令列表）。
+- **权限沿路径继承**：子节点未设置 `minLevel` 时继承父级生效等级；设置了则覆盖（可为任意 0-3 值）。
+- 只有**声明过的**子命令会命中（`/game foo` 未命中 → 从已匹配的最深节点继续，未匹配参数原样传入）。
+- 命中时：`ctx.sub` = 命中链（多级用空格连接，如 `room create`），`ctx.args` 为剩余参数。
+- 拒绝回复会指明完整路径与所需等级（如 `权限不足：game add 需要等级 2…`）。
+- 指令面板暂不注册子命令（QQ 面板元素名不建议带空格）。
+
+## 5. 持久化（KV）
 
 命令通过 **`ctx.cfg.storage`** 访问 KV，**不要**直接访问全局变量 `LQBOT`。存储分两级作用域：
 
@@ -104,11 +162,11 @@ key 结构：
 - **值都是字符串**：对象/数组请用 `setJSON` / `getJSON`。
 - 当前已有的 key：`bot:global:app_access_token`（token 缓存）、`bot:global:seen`（消息去重）、`perm:user:<openid>:level`（权限覆盖）。
 
-## 5. 指令面板
+## 6. 指令面板
 
 - 新增/修改命令后执行 `npm run register` 同步面板（先快照再重建，出错自动回滚）。
 - 等级 < 3 → 全量面板（所有人可见）；等级 ≥ 3 → 仅私聊「管理员面板」（仅超管可见，内含全部命令）。
 
-## 6. 调试
+## 7. 调试
 
 `/debug [args]`（等级 0）：回显原消息、参数、参数数量、用户 openid、用户权限、用户昵称。

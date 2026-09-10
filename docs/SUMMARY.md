@@ -29,6 +29,7 @@ LQBot/
       tweetnacl.js          # vendored 纯 JS Ed25519（已去掉 require('crypto')）
       qq.ts                 # QQ OpenAPI 客户端（token/发群/发私聊/查成员）
       permissions.ts         # 权限解析 3>2>1>0
+      define.ts              # 命令编写辅助（defineCommand，多级子命令）
       registry.ts            # 命令注册 + 解析 + 别名
       reply.ts               # 按场景构造被动回复
       handler.ts             # 验签/地址校验/事件分发/去重/权限/执行/兜底
@@ -98,12 +99,12 @@ LQBot/
 五、命令系统
 ============================================================
 - 触发：群聊 @机器人 消息、私聊消息。
-- 格式：/<command> [args]（参数可无可有多个）。命令模块导出：
-  name / aliases / description / scenes(['group','private']) / minLevel / handler(ctx)
-- 权限：由各 handler 用挡位比较（level >= minLevel 通过；否则拒绝回复）。
-- 反馈：按场景自动发到群（群聊）或私聊（单聊），被动回复携带事件消息 id 作 event_id。
-- 新增命令：在 src/commands/ 建模块（含 export default {...}），并在 src/lib/registry.ts
-  的 commands 数组里 import。
+- 格式：/<command> [args]（参数可无可有多个）。命令模块用 defineCommand 声明并以
+  export default 导出（src/lib/define.ts；支持多级子命令，见 docs/PLUGIN-DEV.md）。
+- 权限：由各 handler 用挡位比较（level >= minLevel 通过；否则拒绝回复）；
+  子命令可单独设置 minLevel 覆盖主命令。
+- 反馈：按场景自动发到群（群聊）或私聊（单聊），被动回复携带消息 id（d.id）作 msg_id。
+- 新增命令：见 docs/PLUGIN-DEV.md，并在 src/lib/registry.ts 的 commands 数组里 import。
 
 ============================================================
 六、内置命令

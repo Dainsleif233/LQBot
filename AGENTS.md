@@ -21,6 +21,7 @@ LQBot/
 │   │   ├── tweetnacl.js         # vendored 纯 JS Ed25519（无类型，保留 .js）
 │   │   ├── qq.ts                # QQ OpenAPI 客户端（token/发群/发私聊/查成员）
 │   │   ├── permissions.ts       # 权限解析 3>2>1>0
+│   │   ├── define.ts            # 命令编写辅助（defineCommand，多级子命令）
 │   │   ├── registry.ts          # 命令注册 + 解析 + 别名
 │   │   ├── reply.ts             # 按场景构造被动回复
 │   │   └── handler.ts           # Webhook 主逻辑（验签/地址校验/分发/去重/权限/执行）
@@ -94,8 +95,9 @@ Skills 是一套社区开放规范，以结构化 Markdown 为 AI Agent 注入�
 
 ## 命令系统（框架侧）
 - 触发：群聊 @机器人 消息、私聊消息。格式 /<command> [args]，解析在 registry.ts（剥离 @机器人 前缀、小写匹配、含别名）。
-- 命令注册表：src/lib/registry.ts 的 commands 数组，插件模块从这里挂载（开发指南见 docs/PLUGIN-DEV.md）。
-- handler 接收的 ctx 包含：args, raw, original, scene, userOpenid, memberOpenid, groupOpenid, nick, level, memberInfo, event, messageId, cfg, qq, reply, deny。
+- 命令编写：src/lib/define.ts 的 defineCommand（export default defineCommand({...})；aliases/scenes 有默认值，分组节点可省略 handler 自动回用法）。命令注册表 src/lib/registry.ts 的 commands 数组是唯一数据源（register.ts 也读它）。详见 docs/PLUGIN-DEV.md。
+- 子命令：命令可声明 subcommands（如 /game add），子命令可单独设置 minLevel 覆盖主命令；命中时 ctx.sub 为子命令名、ctx.args 不含子命令名，权限按子命令判断（指令面板暂不注册子命令）。详见 docs/PLUGIN-DEV.md。
+- handler 接收的 ctx 包含：args, sub, raw, original, scene, userOpenid, memberOpenid, groupOpenid, nick, level, memberInfo, event, messageId, cfg, qq, reply, deny。
 - 持久化：命令经 ctx.cfg.storage 访问 KV（两级：命名空间 × 作用域，见关键技术约定 5）；用法与示例见 docs/PLUGIN-DEV.md。
 - 权限按挡位比较（level >= minLevel 通过；否则调用 ctx.deny() 回复）。反馈由 reply 按场景被动发送。
 
