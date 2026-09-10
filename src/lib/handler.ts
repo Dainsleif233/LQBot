@@ -6,7 +6,7 @@ import { parseCommand, findCommand, findSubCommand } from './registry.js';
 import { createReply } from './reply.js';
 import { isDuplicate } from './dedupe.js';
 import * as qq from './qq.js';
-import type { Command, CommandContext, Config, EdgeContext, MemberInfo, Scene, SubCommand } from './types.js';
+import type { Command, CommandContext, Config, EdgeContext, MemberInfo, MessageAttachment, Scene, SubCommand } from './types.js';
 const jsonHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
 export async function handleWebhook(context: EdgeContext): Promise<Response> {
   const { request, env, waitUntil } = context;
@@ -137,9 +137,17 @@ async function processEvent(cfg: Config, payload: any): Promise<void> {
   }
   const sub = subs.length ? subs.join(' ') : null;
   const target = subs.length ? [cmd.name, ...subs].join(' ') : cmd.name;
+  // 富媒体附件：用户消息里的图片/视频/语音/文件（字段名容错归一化，保留原始对象）
+  const attachments: MessageAttachment[] = (Array.isArray((d as any).attachments) ? (d as any).attachments : [])
+    .map((a: any) => ({
+      contentType: String(a?.content_type ?? a?.contentType ?? ''),
+      filename: a?.filename ?? a?.file_name ?? undefined,
+      url: a?.url ?? a?.file_url ?? undefined,
+      raw: a,
+    }));
   // 解析权限
   const level = await resolveLevel(cfg, { scene, userOpenid, groupOpenid, memberOpenid, memberInfo });
-  const reply = createReply(cfg, event, scene);
+  const { reply, replyMarkdown, replyMedia } = createReply(cfg, event, scene);
   const ctx: CommandContext = {
     name: parsed.name,
     sub,
@@ -155,9 +163,12 @@ async function processEvent(cfg: Config, payload: any): Promise<void> {
     memberInfo,
     event,
     messageId,
+    attachments,
     cfg,
     qq,
     reply,
+    replyMarkdown,
+    replyMedia,
     // 便捷：需要更高等级时的拒绝回复
     async deny() {
       return reply('权限不足：' + target + ' 需要等级 ' + minLevel + '（' + levelName(minLevel) + '），当前等级 ' + level);

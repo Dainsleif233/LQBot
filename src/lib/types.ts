@@ -72,6 +72,20 @@ export interface MemberInfo {
   [key: string]: unknown;
 }
 
+/** 富媒体文件类型：1 图片 2 视频 3 语音 4 文件 */
+export type MediaType = 1 | 2 | 3 | 4;
+
+/** 用户消息携带的富媒体附件（字段名做容错归一化，raw 保留原始对象） */
+export interface MessageAttachment {
+  /** image / video / audio / file（以平台实际为准） */
+  contentType: string;
+  filename?: string;
+  url?: string;
+  raw: unknown;
+}
+
+// 场景回复：reply 文本、replyMarkdown（msg_type=2）、replyMedia（先上传后 msg_type=7），均为被动回复
+
 export interface CommandContext {
   name: string;
   /** 命中的子命令链（多级以空格连接，如 'room create'；未命中时为 null） */
@@ -88,9 +102,16 @@ export interface CommandContext {
   memberInfo: MemberInfo | null;
   event: any;
   messageId: string;
+  /** 用户消息携带的富媒体附件（无则空数组） */
+  attachments: MessageAttachment[];
   cfg: Config;
   qq: QqApi;
+  /** 文本被动回复（群聊开头自动加换行与 @ 上下文分隔） */
   reply: (content: string) => Promise<void>;
+  /** Markdown（msg_type=2）被动回复 */
+  replyMarkdown: (content: string) => Promise<void>;
+  /** 富媒体（msg_type=7）被动回复：先上传 url 拿 file_info 再发送 */
+  replyMedia: (fileType: MediaType, url: string) => Promise<void>;
   deny: () => Promise<void>;
 }
 
@@ -123,6 +144,12 @@ export interface QqApi {
   getAccessToken: (cfg: Config) => Promise<string>;
   sendGroupMessage: (cfg: Config, groupOpenid: string, content: string, msgId?: string) => Promise<any>;
   sendC2CMessage: (cfg: Config, userOpenid: string, content: string, msgId?: string) => Promise<any>;
+  /** 发送 Markdown（msg_type=2）；scene 决定群/私聊端点 */
+  sendMarkdown: (cfg: Config, scene: Scene, openid: string, markdown: string, msgId?: string) => Promise<any>;
+  /** URL 上传富媒体，返回 file_info（srv_send_msg=false，不占主动消息额度） */
+  uploadFile: (cfg: Config, scene: Scene, openid: string, fileType: MediaType, url: string) => Promise<string>;
+  /** 发送富媒体（msg_type=7），fileInfo 来自 uploadFile；scene 决定群/私聊端点 */
+  sendMedia: (cfg: Config, scene: Scene, openid: string, fileInfo: string, msgId?: string) => Promise<any>;
   getGroupMember: (cfg: Config, groupOpenid: string, memberOpenid: string) => Promise<MemberInfo | null>;
   listGroupMembers: (cfg: Config, groupOpenid: string, limit?: number, after?: string) => Promise<any>;
 }
