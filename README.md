@@ -27,3 +27,7 @@
 | [docs/PLUGIN-DEV.md](docs/PLUGIN-DEV.md) | 插件（命令）开发：命令模块、上下文、权限、持久化、面板 |
 | [AGENTS.md](AGENTS.md) | 面向智能体协助开发**框架**的架构约定与坑位 |
 | [docs/SUMMARY.md](docs/SUMMARY.md) | 项目搭建过程总结 |
+
+## 许可
+
+[GPL-3.0](LICENSE)。
