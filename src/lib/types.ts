@@ -150,6 +150,8 @@ export interface QqApi {
   uploadFile: (cfg: Config, scene: Scene, openid: string, fileType: MediaType, url: string) => Promise<string>;
   /** 发送富媒体（msg_type=7），fileInfo 来自 uploadFile；scene 决定群/私聊端点 */
   sendMedia: (cfg: Config, scene: Scene, openid: string, fileInfo: string, msgId?: string) => Promise<any>;
+  /** 原样发送消息体（msg_id/msg_seq 由调用方组装，供订阅通知等主动发送场景） */
+  sendBody: (cfg: Config, scene: Scene, openid: string, body: Record<string, unknown>) => Promise<any>;
   getGroupMember: (cfg: Config, groupOpenid: string, memberOpenid: string) => Promise<MemberInfo | null>;
   listGroupMembers: (cfg: Config, groupOpenid: string, limit?: number, after?: string) => Promise<any>;
 }
