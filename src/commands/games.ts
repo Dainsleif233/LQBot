@@ -152,27 +152,49 @@ export default defineCommand({
     const arg = ctx.args[0];
     let target = todayCN();
     let isToday = true;
+    let showAll = false;
     if (arg) {
-      const d = parseDateArg(arg);
-      if (!d) {
-        await ctx.reply('日期格式不支持。可用：9.10 / 09-10 / 9/10 / 9月5日 / 九月十五号 / 9月05号（一律东八区）；留空为当天。');
-        return;
+      if (arg.toLowerCase() === 'all') {
+        showAll = true;
+      } else {
+        const d = parseDateArg(arg);
+        if (!d) {
+          await ctx.reply('日期格式不支持。可用：9.10 / 09-10 / 9/10 / 9月5日 / 九月十五号 / 9月05号（一律东八区）；留空为当天；all 为今天及之后全部。');
+          return;
+        }
+        target = d;
+        isToday = false;
       }
-      target = d;
-      isToday = false;
     }
     const ids = await loadIndex(ctx);
     const games = (await Promise.all(ids.map((id) => loadGame(ctx, id)))).filter((g): g is Game => !!g);
     const matched = games.filter((g) => {
       const dt = dateOfText(g.fields['时间'] || '');
-      return !!dt && dt.month === target.month && dt.day === target.day;
+      if (!dt) return false;
+      if (showAll) {
+        const t = todayCN();
+        return dt.month * 100 + dt.day >= t.month * 100 + t.day;
+      }
+      return dt.month === target.month && dt.day === target.day;
     });
+    if (showAll) {
+      matched.sort((a, b) => {
+        const da = dateOfText(a.fields['时间'] || '');
+        const db = dateOfText(b.fields['时间'] || '');
+        if (!da || !db) return 0;
+        return da.month * 100 + da.day - (db.month * 100 + db.day);
+      });
+    }
     const unknown = games.filter((g) => !dateOfText(g.fields['时间'] || ''));
-    const lines = ['# 🎮 小游戏列表（' + dateLabel(target, isToday) + '）'];
-    if (!matched.length) lines.push('该日期暂无小游戏。');
+    const lines = [
+      showAll
+        ? '# 🎮 小游戏列表（今天及之后）'
+        : '# 🎮 小游戏列表（' + dateLabel(target, isToday) + '）',
+    ];
+    if (!matched.length) lines.push(showAll ? '今天及之后暂无小游戏。' : '该日期暂无小游戏。');
     for (const g of matched) {
       lines.push('');
-      lines.push('**' + (g.fields['名称'] || '(未命名)') + '**（id：`' + g.id + '`）');
+      lines.push('### ' + (g.fields['名称'] || '(未命名)') + '（id：`' + g.id + '`）');
       for (const key of Object.keys(g.fields)) {
         if (key === '名称' || !g.fields[key]) continue;
         lines.push('- **' + key + '**：' + g.fields[key]);
@@ -180,7 +202,7 @@ export default defineCommand({
     }
     if (unknown.length) {
       lines.push('');
-      lines.push('**未标注时间的游戏**');
+      lines.push('### 未标注时间的游戏');
       for (const g of unknown) lines.push('• ' + (g.fields['名称'] || g.id) + '（id：`' + g.id + '`，时间：' + (g.fields['时间'] || '未填') + '）');
     }
     await ctx.replyMarkdown(lines.join('\n'));
