@@ -32,6 +32,8 @@ export function createConfig(env: Record<string, string | undefined> | undefined
     // 群聊场景是否调用成员接口检测真实群管身份（默认开）。
     checkGroupAdmin: env.CHECK_GROUP_ADMIN !== 'false',
     groupSceneLevel,
+    // SWUSTMC 题库 API Key（/question 抽题）
+    swustmcApiKey: env.SWUSTMC_APIKEY || '',
     // 持久化入口（命名空间 × 作用域）。KV 未绑定时 storage.available === false，相关功能自动跳过。
     storage: createStorage(rawKv),
   };

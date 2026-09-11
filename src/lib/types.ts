@@ -61,6 +61,8 @@ export interface Config {
   verifyEventSignature: boolean;
   checkGroupAdmin: boolean;
   groupSceneLevel: number;
+  /** SWUSTMC 题库 API Key（X-API-Key）；/question 使用 */
+  swustmcApiKey: string;
   storage: Storage;
 }
 
