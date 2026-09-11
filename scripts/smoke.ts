@@ -8,6 +8,8 @@ import type { MessageAttachment } from '../src/lib/types.js';
 
 interface RecordedCall { url: string; body: any; }
 const calls: RecordedCall[] = [];
+/** 为 true 时 /messages 返回 40054005（msg_seq 去重） */
+let failMsgSeqDedupe = false;
 const realFetch = globalThis.fetch;
 // 桩掉 fetch：token 返回假 token；/files 返回固定 file_info；其余记录 url+body（消息发送）
 globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
@@ -21,6 +23,13 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
     return new Response(JSON.stringify({ file_info: 'FI_SMOKE' }), { status: 200 });
   }
   if (url.includes('/messages')) {
+    if (failMsgSeqDedupe) {
+      return new Response(JSON.stringify({
+        message: '消息被去重，请检查请求msgseq',
+        code: 40054005,
+        err_code: 40054005,
+      }), { status: 400 });
+    }
     // 模拟官方发送响应：id + ext_info.ref_idx（入站引用用 REFIDX 对回）
     return new Response(JSON.stringify({
       id: 'ROBOT1.0_OUT',
@@ -297,6 +306,21 @@ async function main(): Promise<void> {
     quoteHits.length = 0;
     await runQuote({ content: 'D', messageType: 103, refMsgIdx: null }, adminEnv);
     expect('无 ref_msg_idx 不分发', quoteHits.length === 0, quoteHits);
+  }
+
+  // QQ 40054005（msg_seq 去重）：吞掉，不向用户打「引用回复处理出错」
+  {
+    quoteHits.length = 0;
+    failMsgSeqDedupe = true;
+    const out = await runQuote({
+      content: 'B',
+      messageType: 103,
+      refMsgIdx: 'REFIDX_OUT',
+    }, adminEnv);
+    failMsgSeqDedupe = false;
+    expect('40054005 不向用户暴露错误',
+      quoteHits.some((h) => h.kind === 'quote') && !out.includes('引用回复处理出错') && !out.includes('40054005'),
+      { quoteHits, out });
   }
 
   if (fail > 0) {
