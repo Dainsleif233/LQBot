@@ -10,7 +10,6 @@ const CATEGORY_ID = '8211471756443-023805e7';
 const DRAW_URL = 'https://www.swustmc.cn/api/plugins/questionbank/draw?categoryId=' + CATEGORY_ID + '&count=1';
 
 interface ApiQuestion {
-  id: string;
   type: string; // SINGLE | MULTIPLE | TRUE_FALSE
   typeLabel: string;
   content: string;
@@ -18,12 +17,10 @@ interface ApiQuestion {
   answer?: string | null;
   answers?: string[];
   analysis?: string | null;
-  difficulty?: number;
 }
 
 interface QuestionSession {
   id: string;
-  apiId: string;
   type: string;
   typeLabel: string;
   content: string;
@@ -34,8 +31,6 @@ interface QuestionSession {
   scene: Scene;
   userOpenid: string | null;
   groupOpenid: string | null;
-  askedBy: string | null;
-  createdAt: number;
   done: boolean;
   attempts: number;
   /** 本会话已登记的机器人消息 REFIDX（任意一条都可被引用作答） */
@@ -178,17 +173,21 @@ async function drawQuestion(apiKey: string): Promise<ApiQuestion> {
   if (!resp.ok) {
     throw new Error('题库 API ' + resp.status + ': ' + text.slice(0, 200));
   }
-  const q = Array.isArray(data?.questions) ? data.questions[0] : null;
+  // 真实响应为 { code, message, data: { questions, ... } }；兼容顶层 questions
+  if (data && data.code !== undefined && Number(data.code) !== 200) {
+    throw new Error('题库返回错误 ' + data.code + ': ' + (data.message || text.slice(0, 120)));
+  }
+  const bag = data && Array.isArray(data.questions) ? data : (data && data.data ? data.data : null);
+  const q = bag && Array.isArray(bag.questions) ? bag.questions[0] : null;
   if (!q || !q.content) {
     throw new Error('题库未返回题目：' + text.slice(0, 200));
   }
   return q as ApiQuestion;
 }
 
-function toSession(apiId: string, q: ApiQuestion, ctx: CommandContext): QuestionSession {
+function toSession(q: ApiQuestion, ctx: CommandContext): QuestionSession {
   return {
     id: newSessionId(),
-    apiId: apiId || q.id || '',
     type: q.type || 'SINGLE',
     typeLabel: q.typeLabel || '问答',
     content: q.content,
@@ -198,8 +197,6 @@ function toSession(apiId: string, q: ApiQuestion, ctx: CommandContext): Question
     scene: ctx.scene,
     userOpenid: ctx.userOpenid,
     groupOpenid: ctx.groupOpenid,
-    askedBy: ctx.userOpenid || ctx.memberOpenid,
-    createdAt: Date.now(),
     done: false,
     attempts: 0,
     refs: [],
@@ -209,7 +206,6 @@ function toSession(apiId: string, q: ApiQuestion, ctx: CommandContext): Question
 // ---------- 命令 ----------
 export default defineCommand({
   name: 'question',
-  aliases: ['q'],
   description: 'Minecraft答题',
   minLevel: LEVELS.USER,
 
@@ -230,7 +226,7 @@ export default defineCommand({
       await ctx.reply('抽题失败：' + (e instanceof Error ? e.message : String(e)));
       return;
     }
-    const session = toSession(apiQ.id, apiQ, ctx);
+    const session = toSession(apiQ, ctx);
     if (!session.correct.length) {
       await ctx.reply('题目数据异常（缺少标准答案），请再试一次或联系管理员。');
       return;

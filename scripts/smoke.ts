@@ -48,7 +48,7 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
     if (key !== 'test-key') {
       return new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 });
     }
-    return new Response(JSON.stringify({ questions: [mockDrawQuestion], seed: '1', total: 1 }), { status: 200 });
+    return new Response(JSON.stringify({ code: 200, message: '操作成功', data: { questions: [mockDrawQuestion], seed: '1', total: 1 } }), { status: 200 });
   }
   calls.push({ url, body });
   if (url.includes('/files')) {
