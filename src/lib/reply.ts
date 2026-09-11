@@ -3,15 +3,23 @@
 // 同一 msg_id 多次被动回复必须递增 msg_seq（相同 msg_id+msg_seq 会失败），本文件自动递增。
 // 窗口内额度：单聊 4 次 / 群聊 5 次（超出后 QQ 拒绝）。
 import * as qq from './qq.js';
-import type { Config, MediaType, Scene } from './types.js';
+import type { Config, MediaType, Scene, SentMessage } from './types.js';
+
+/** 从发送响应提取 id + ext_info.ref_idx（入站引用用 REFIDX 对回机器人消息） */
+function toSentMessage(data: any): SentMessage {
+  const id = data && typeof data === 'object' && data.id != null ? String(data.id) : '';
+  const refRaw = data && typeof data === 'object' && data.ext_info ? (data.ext_info as any).ref_idx : undefined;
+  const refIdx = refRaw != null && refRaw !== '' ? String(refRaw) : null;
+  return { id, refIdx };
+}
 
 export interface SceneReply {
   /** 文本（群聊开头自动加换行与 @ 上下文分隔） */
-  reply: (content: string) => Promise<void>;
+  reply: (content: string) => Promise<SentMessage>;
   /** Markdown（msg_type=2） */
-  replyMarkdown: (content: string) => Promise<void>;
+  replyMarkdown: (content: string) => Promise<SentMessage>;
   /** 富媒体（msg_type=7）：先 URL 上传拿 file_info（srv_send_msg=false），再被动发送 */
-  replyMedia: (fileType: MediaType, url: string) => Promise<void>;
+  replyMedia: (fileType: MediaType, url: string) => Promise<SentMessage>;
 }
 
 export function createReply(cfg: Config, event: any, scene: Scene): SceneReply {
@@ -37,16 +45,17 @@ export function createReply(cfg: Config, event: any, scene: Scene): SceneReply {
     reply: (content: string) => {
       ensureOpenid();
       const text = scene === 'group' ? '\n' + content : content;
-      return qq.sendBody(cfg, scene, openid, passived({ content: text, msg_type: 0 })).then(() => undefined);
+      return qq.sendBody(cfg, scene, openid, passived({ content: text, msg_type: 0 })).then(toSentMessage);
     },
     replyMarkdown: (content: string) => {
       ensureOpenid();
-      return qq.sendBody(cfg, scene, openid, passived({ msg_type: 2, markdown: { content } })).then(() => undefined);
+      return qq.sendBody(cfg, scene, openid, passived({ msg_type: 2, markdown: { content } })).then(toSentMessage);
     },
-    replyMedia: async (fileType: MediaType, url: string): Promise<void> => {
+    replyMedia: async (fileType: MediaType, url: string): Promise<SentMessage> => {
       ensureOpenid();
       const fileInfo = await qq.uploadFile(cfg, scene, openid, fileType, url);
-      await qq.sendBody(cfg, scene, openid, passived({ msg_type: 7, media: { file_info: fileInfo } }));
+      const data = await qq.sendBody(cfg, scene, openid, passived({ msg_type: 7, media: { file_info: fileInfo } }));
+      return toSentMessage(data);
     },
   };
 }

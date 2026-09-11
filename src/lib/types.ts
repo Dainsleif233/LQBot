@@ -86,6 +86,31 @@ export interface MessageAttachment {
 
 // 场景回复：reply 文本、replyMarkdown（msg_type=2）、replyMedia（先上传后 msg_type=7），均为被动回复
 
+/** 被动回复发送结果：id 可撤回；refIdx 用于入站引用对回本条消息 */
+export interface SentMessage {
+  id: string;
+  /** 发送响应 ext_info.ref_idx（REFIDX_...）；入站 message_scene.ext.ref_msg_idx 用它对上 */
+  refIdx: string | null;
+}
+
+/** 用户消息里的引用回复信息（message_type=103 / message_scene.ext 含 ref_msg_idx） */
+export interface QuoteInfo {
+  /** 是否为引用消息 */
+  isQuote: boolean;
+  /** 被引用消息的 REFIDX；业务侧用它反查自己登记过的机器人消息 */
+  refMsgIdx: string | null;
+  /** 用户本次消息正文（已尽量剥掉 @ 前缀；仅引用无正文时为空串） */
+  text: string;
+  /** 被引用消息正文（尽量从 msg_elements[0].content 提取，便于兜底/调试） */
+  quotedText: string;
+  /** 事件 message_type（0 文本 / 103 引用等；缺失为 null） */
+  messageType: number | null;
+  /** 原始 message_scene.ext 列表 */
+  ext: string[];
+  /** 原始 msg_elements */
+  elements: unknown[];
+}
+
 export interface CommandContext {
   name: string;
   /** 命中的子命令链（多级以空格连接，如 'room create'；未命中时为 null） */
@@ -104,14 +129,16 @@ export interface CommandContext {
   messageId: string;
   /** 用户消息携带的富媒体附件（无则空数组） */
   attachments: MessageAttachment[];
+  /** 引用回复信息（非引用消息为 null；slash 命令若带引用也会填充） */
+  quote: QuoteInfo | null;
   cfg: Config;
   qq: QqApi;
   /** 文本被动回复（群聊开头自动加换行与 @ 上下文分隔） */
-  reply: (content: string) => Promise<void>;
+  reply: (content: string) => Promise<SentMessage>;
   /** Markdown（msg_type=2）被动回复 */
-  replyMarkdown: (content: string) => Promise<void>;
+  replyMarkdown: (content: string) => Promise<SentMessage>;
   /** 富媒体（msg_type=7）被动回复：先上传 url 拿 file_info 再发送 */
-  replyMedia: (fileType: MediaType, url: string) => Promise<void>;
+  replyMedia: (fileType: MediaType, url: string) => Promise<SentMessage>;
   deny: () => Promise<void>;
 }
 
@@ -138,6 +165,12 @@ export interface Command {
   subcommands?: SubCommand[];
   /** 省略时自动回复子命令用法（需要声明 subcommands） */
   handler?: (ctx: CommandContext) => Promise<void>;
+  /**
+   * 非 slash 命令但带引用回复时的回调（message_type=103 或 ext 含 ref_msg_idx）。
+   * 框架按注册表顺序依次调用；返回 true 表示已处理，后续 onQuote 不再执行。
+   * 有效 slash 命令（含未知命令名）不会进入此路径。
+   */
+  onQuote?: (ctx: CommandContext) => Promise<boolean | void>;
 }
 
 export interface QqApi {
