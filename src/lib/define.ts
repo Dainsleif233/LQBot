@@ -25,6 +25,8 @@ export interface CommandInput {
   /** 缺省时自动回复子命令用法（需要声明 subcommands） */
   handler?: (ctx: CommandContext) => Promise<void>;
   subcommands?: SubCommandInput[];
+  /** 非 slash 命令的引用回复回调；返回 true 表示已处理 */
+  onQuote?: (ctx: CommandContext) => Promise<boolean | void>;
 }
 
 // name/aliases 统一 trim + 小写：registry 匹配是「小写输入比对原值」，
@@ -69,5 +71,6 @@ export function defineCommand(input: CommandInput): Command {
     minLevel: input.minLevel,
     handler: input.handler,
     subcommands: input.subcommands ? input.subcommands.map((s) => normalizeSub(s, name)) : undefined,
+    onQuote: input.onQuote,
   };
 }

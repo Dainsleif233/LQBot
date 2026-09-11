@@ -20,6 +20,14 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
   if (url.includes('/files')) {
     return new Response(JSON.stringify({ file_info: 'FI_SMOKE' }), { status: 200 });
   }
+  if (url.includes('/messages')) {
+    // 模拟官方发送响应：id + ext_info.ref_idx（入站引用用 REFIDX 对回）
+    return new Response(JSON.stringify({
+      id: 'ROBOT1.0_OUT',
+      timestamp: '2026-01-01T00:00:00+08:00',
+      ext_info: { ref_idx: 'REFIDX_OUT' },
+    }), { status: 200 });
+  }
   return new Response(JSON.stringify({ ret: 0, msg: 'ok' }), { status: 200 });
 }) as typeof fetch;
 
@@ -75,10 +83,65 @@ commands.push(defineCommand({
   },
 }));
 
+// 测试命令 3：引用回复基础设施（handler 拿 refIdx；onQuote 消费非 slash 引用消息）
+interface QuoteHit { kind: 'ask' | 'quote' | 'slash'; id?: string; refIdx?: string | null; ref?: string | null; text?: string; quoted?: string; }
+const quoteHits: QuoteHit[] = [];
+commands.push(defineCommand({
+  name: 'qtest',
+  description: '引用测试',
+  minLevel: LEVELS.USER,
+  async handler(ctx) {
+    const sent = await ctx.reply('QTEST_QUESTION');
+    quoteHits.push({ kind: 'slash', id: sent.id, refIdx: sent.refIdx });
+  },
+  async onQuote(ctx) {
+    quoteHits.push({
+      kind: 'quote',
+      ref: ctx.quote?.refMsgIdx ?? null,
+      text: ctx.quote?.text ?? '',
+      quoted: ctx.quote?.quotedText ?? '',
+    });
+    await ctx.reply('QTEST_ANSWER text=' + (ctx.quote?.text || '') + ' ref=' + (ctx.quote?.refMsgIdx || ''));
+    return true;
+  },
+}));
+
 function makeRequest(content: string, attachments?: MessageAttachment[]): Request {
   const d: any = { id: 'ROBOT1.0_SMOKE', content, author: { user_openid: 'u_test' } };
   if (attachments) d.attachments = attachments;
   const payload = { op: 0, t: 'C2C_MESSAGE_CREATE', d };
+  return new Request('http://localhost/webhook', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}
+
+interface QuoteReqOpts {
+  content?: string;
+  messageId?: string;
+  refMsgIdx?: string | null;
+  messageType?: number | null;
+  elements?: unknown[];
+  scene?: 'private' | 'group';
+}
+function makeQuoteRequest(opts: QuoteReqOpts): Request {
+  const isGroup = opts.scene === 'group';
+  const d: any = {
+    id: opts.messageId || ('ROBOT1.0_Q' + Math.random().toString(36).slice(2, 8)),
+    content: opts.content ?? '',
+    author: isGroup
+      ? { member_openid: 'u_test', username: 'tester', member_role: 'member' }
+      : { user_openid: 'u_test' },
+  };
+  if (isGroup) d.group_openid = 'g_test';
+  if (opts.messageType != null) d.message_type = opts.messageType;
+  const ext: string[] = [];
+  if (opts.refMsgIdx) ext.push('ref_msg_idx=' + opts.refMsgIdx);
+  ext.push('msg_idx=REFIDX_SELF');
+  d.message_scene = { source: 'default', ext };
+  if (opts.elements) d.msg_elements = opts.elements;
+  const payload = { op: 0, t: isGroup ? 'GROUP_AT_MESSAGE_CREATE' : 'C2C_MESSAGE_CREATE', d };
   return new Request('http://localhost/webhook', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -162,6 +225,78 @@ async function main(): Promise<void> {
     const ok = out.includes('ATT image:https://e/i.png:i.png');
     if (!ok) fail++;
     console.log((ok ? '✓' : '✗') + ' /media 读取附件' + (ok ? '' : '  实际: ' + JSON.stringify(out)));
+  }
+
+  // ---------- 引用回复基础设施 ----------
+  function expect(label: string, cond: boolean, detail?: unknown): void {
+    if (!cond) fail++;
+    console.log((cond ? '✓' : '✗') + ' ' + label + (cond ? '' : '  实际: ' + JSON.stringify(detail)));
+  }
+  async function runQuote(opts: QuoteReqOpts, env: Record<string, string>): Promise<string> {
+    calls.length = 0;
+    await handleWebhook({ request: makeQuoteRequest(opts), env });
+    return sentText();
+  }
+
+  // 发送响应 ext_info.ref_idx 进入 SentMessage.refIdx
+  {
+    quoteHits.length = 0;
+    await run('/qtest', adminEnv);
+    const ask = quoteHits.find((h) => h.kind === 'slash');
+    expect('/qtest 回复返回 id+refIdx', !!ask && ask.id === 'ROBOT1.0_OUT' && ask.refIdx === 'REFIDX_OUT', ask);
+  }
+
+  // 非 slash + ref_msg_idx -> onQuote；正文与被引用正文解析正确
+  {
+    quoteHits.length = 0;
+    const out = await runQuote({
+      content: '  B  ',
+      messageType: 103,
+      refMsgIdx: 'REFIDX_OUT',
+      elements: [{ msg_idx: 'REFIDX_OUT', content: 'QTEST_QUESTION' }],
+    }, adminEnv);
+    const hit = quoteHits.find((h) => h.kind === 'quote');
+    expect('引用回复触发 onQuote', !!hit && hit.ref === 'REFIDX_OUT' && hit.text === 'B' && hit.quoted === 'QTEST_QUESTION', { hit, out });
+    expect('onQuote 被动回复发出', out.includes('QTEST_ANSWER text=B ref=REFIDX_OUT'), out);
+  }
+
+  // slash 命令优先：引用 + /qtest 进 handler，不进 onQuote
+  {
+    quoteHits.length = 0;
+    await runQuote({
+      content: '/qtest',
+      messageType: 103,
+      refMsgIdx: 'REFIDX_OUT',
+      elements: [{ content: 'old' }],
+    }, adminEnv);
+    expect('slash 优先不进 onQuote', quoteHits.every((h) => h.kind !== 'quote') && quoteHits.some((h) => h.kind === 'slash'), quoteHits);
+  }
+
+  // 非引用、非命令：静默忽略，不进 onQuote
+  {
+    quoteHits.length = 0;
+    const out = await runQuote({ content: 'B', messageType: 0, refMsgIdx: null }, adminEnv);
+    expect('非引用普通消息忽略', quoteHits.length === 0 && !out.includes('QTEST_ANSWER'), { quoteHits, out });
+  }
+
+  // 群聊引用同样分发 onQuote
+  {
+    quoteHits.length = 0;
+    const out = await runQuote({
+      scene: 'group',
+      content: 'C',
+      messageType: 103,
+      refMsgIdx: 'REFIDX_OUT',
+    }, adminEnv);
+    const hit = quoteHits.find((h) => h.kind === 'quote');
+    expect('群聊引用触发 onQuote', !!hit && hit.ref === 'REFIDX_OUT' && hit.text === 'C', { hit, out });
+  }
+
+  // 有 message_type=103 但无 ref_msg_idx：不进 onQuote（无法对题）
+  {
+    quoteHits.length = 0;
+    await runQuote({ content: 'D', messageType: 103, refMsgIdx: null }, adminEnv);
+    expect('无 ref_msg_idx 不分发', quoteHits.length === 0, quoteHits);
   }
 
   if (fail > 0) {

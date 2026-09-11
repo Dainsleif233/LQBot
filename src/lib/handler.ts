@@ -1,13 +1,116 @@
 // Webhook 主逻辑：验签/地址校验/分发事件/执行命令。
 import { createConfig } from './config.js';
 import { signWebhookChallenge, verifyWebhookSignature } from './crypto.js';
-import { resolveLevel, LEVELS, levelName } from './permissions.js';
-import { parseCommand, findCommand, findSubCommand } from './registry.js';
+import { resolveLevel, levelName } from './permissions.js';
+import { parseCommand, findCommand, findSubCommand, commands } from './registry.js';
 import { createReply } from './reply.js';
 import { isDuplicate } from './dedupe.js';
 import * as qq from './qq.js';
-import type { Command, CommandContext, Config, EdgeContext, MemberInfo, MessageAttachment, Scene, SubCommand } from './types.js';
+import type { Command, CommandContext, Config, EdgeContext, MemberInfo, MessageAttachment, QuoteInfo, Scene, SubCommand } from './types.js';
 const jsonHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+
+/** message_scene.ext 为 key=value 列表；值可能是 base64（含 =），按前缀切分 */
+function extValue(ext: string[], key: string): string | null {
+  const prefix = key + '=';
+  for (const item of ext) {
+    const s = String(item);
+    if (s.startsWith(prefix)) return s.slice(prefix.length);
+  }
+  return null;
+}
+
+function parseAttachments(d: any): MessageAttachment[] {
+  return (Array.isArray((d as any).attachments) ? (d as any).attachments : [])
+    .map((a: any) => ({
+      contentType: String(a?.content_type ?? a?.contentType ?? ''),
+      filename: a?.filename ?? a?.file_name ?? undefined,
+      url: a?.url ?? a?.file_url ?? undefined,
+      raw: a,
+    }));
+}
+
+/** 解析引用回复：message_type=103 或 message_scene.ext 含 ref_msg_idx */
+function parseQuote(d: any): QuoteInfo | null {
+  const messageType = typeof d?.message_type === 'number' ? (d.message_type as number) : null;
+  const rawExt = d?.message_scene?.ext;
+  const ext: string[] = Array.isArray(rawExt) ? rawExt.map((x: unknown) => String(x)) : [];
+  const refMsgIdx = extValue(ext, 'ref_msg_idx');
+  const elements: unknown[] = Array.isArray(d?.msg_elements) ? d.msg_elements : [];
+  const isQuote = messageType === 103 || !!refMsgIdx;
+  if (!isQuote) return null;
+  // 用户本次正文：QQ 群聊已去掉 @ 前缀；这里再容错剥一层（C2C 无 @）
+  let text = typeof d?.content === 'string' ? d.content : '';
+  text = text.replace(/^<@!?[0-9A-Za-z_]+>\s*/, '').replace(/^@\S+\s*/, '').trim();
+  // 被引用消息正文：优先 msg_elements[0].content（官方 103 示例结构）
+  let quotedText = '';
+  if (elements.length) {
+    const el = elements[0] as any;
+    if (el && typeof el.content === 'string') quotedText = el.content;
+  }
+  return { isQuote, refMsgIdx, text, quotedText, messageType, ext, elements };
+}
+
+/** 非 slash 命令的引用回复：按注册表顺序分发 onQuote，返回 true 的命令吃掉事件 */
+async function dispatchQuote(
+  cfg: Config,
+  event: any,
+  scene: Scene,
+  opts: {
+    userOpenid: string | null;
+    memberOpenid: string | null;
+    groupOpenid: string | null;
+    nick: string;
+    memberInfo: MemberInfo | null;
+    messageId: string;
+    d: any;
+    quote: QuoteInfo;
+  },
+): Promise<void> {
+  const { userOpenid, memberOpenid, groupOpenid, nick, memberInfo, messageId, d, quote } = opts;
+  if (!quote.refMsgIdx || !messageId) return;
+  const attachments = parseAttachments(d);
+  const level = await resolveLevel(cfg, { scene, userOpenid, groupOpenid, memberOpenid, memberInfo });
+  const { reply, replyMarkdown, replyMedia } = createReply(cfg, event, scene);
+  const original = (typeof d.content === 'string' ? d.content : '').trim();
+  const ctx: CommandContext = {
+    name: '',
+    sub: null,
+    args: [],
+    raw: quote.text,
+    original,
+    scene,
+    userOpenid,
+    memberOpenid,
+    groupOpenid,
+    nick,
+    level,
+    memberInfo,
+    event,
+    messageId,
+    attachments,
+    quote,
+    cfg,
+    qq,
+    reply,
+    replyMarkdown,
+    replyMedia,
+    async deny() {
+      return reply('权限不足：当前等级 ' + level);
+    },
+  };
+  for (const cmd of commands) {
+    if (!cmd.onQuote) continue;
+    if (cmd.scenes && cmd.scenes.indexOf(scene) === -1) continue;
+    try {
+      const handled = await cmd.onQuote(ctx);
+      if (handled) return;
+    } catch (e) {
+      console.error('[LQBot] onQuote handler error (' + cmd.name + '):', e);
+      try { await reply('引用回复处理出错：' + (e as Error).message); } catch (e2) { console.error('[LQBot] reply failed:', e2); }
+      return;
+    }
+  }
+}
 export async function handleWebhook(context: EdgeContext): Promise<Response> {
   const { request, env, waitUntil } = context;
   const cfg = createConfig(env);
@@ -111,11 +214,20 @@ async function processEvent(cfg: Config, payload: any): Promise<void> {
     };
     userOpenid = author.user_openid || memberOpenid || userOpenid;
   }
-  // 解析命令
+  // 解析命令与引用回复
+  const quote = parseQuote(d);
   const parsed = parseCommand(d.content);
-  if (!parsed) { return; }
+  // 非 slash 命令但带引用：交给声明了 onQuote 的命令处理
+  if (!parsed) {
+    if (quote && quote.refMsgIdx) {
+      await dispatchQuote(cfg, event, scene, {
+        userOpenid, memberOpenid, groupOpenid, nick, memberInfo, messageId, d, quote,
+      });
+    }
+    return;
+  }
   const cmd = findCommand(parsed.name);
-  if (!cmd) { return; } // 未知命令静默忽略
+  if (!cmd) { return; } // 未知命令静默忽略（不当作引用作答）
   if (cmd.scenes && cmd.scenes.indexOf(scene) === -1) {
     return; // 该命令不适用于当前场景
   }
@@ -138,13 +250,7 @@ async function processEvent(cfg: Config, payload: any): Promise<void> {
   const sub = subs.length ? subs.join(' ') : null;
   const target = subs.length ? [cmd.name, ...subs].join(' ') : cmd.name;
   // 富媒体附件：用户消息里的图片/视频/语音/文件（字段名容错归一化，保留原始对象）
-  const attachments: MessageAttachment[] = (Array.isArray((d as any).attachments) ? (d as any).attachments : [])
-    .map((a: any) => ({
-      contentType: String(a?.content_type ?? a?.contentType ?? ''),
-      filename: a?.filename ?? a?.file_name ?? undefined,
-      url: a?.url ?? a?.file_url ?? undefined,
-      raw: a,
-    }));
+  const attachments = parseAttachments(d);
   // 解析权限
   const level = await resolveLevel(cfg, { scene, userOpenid, groupOpenid, memberOpenid, memberInfo });
   const { reply, replyMarkdown, replyMedia } = createReply(cfg, event, scene);
@@ -152,7 +258,7 @@ async function processEvent(cfg: Config, payload: any): Promise<void> {
     name: parsed.name,
     sub,
     args: rest,
-    raw: parsed.raw,
+    raw: parsed!.raw,
     original: (typeof d.content === 'string' ? d.content : '').trim(),
     scene,
     userOpenid,
@@ -164,6 +270,7 @@ async function processEvent(cfg: Config, payload: any): Promise<void> {
     event,
     messageId,
     attachments,
+    quote,
     cfg,
     qq,
     reply,
