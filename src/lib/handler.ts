@@ -3,7 +3,7 @@ import { createConfig } from './config.js';
 import { signWebhookChallenge, verifyWebhookSignature } from './crypto.js';
 import { resolveLevel, levelName } from './permissions.js';
 import { parseCommand, findCommand, findSubCommand, commands } from './registry.js';
-import { createReply } from './reply.js';
+import { createReply, isMsgSeqDuplicateError } from './reply.js';
 import { isDuplicate } from './dedupe.js';
 import * as qq from './qq.js';
 import type { Command, CommandContext, Config, EdgeContext, MemberInfo, MessageAttachment, QuoteInfo, Scene, SubCommand } from './types.js';
@@ -105,6 +105,11 @@ async function dispatchQuote(
       const handled = await cmd.onQuote(ctx);
       if (handled) return;
     } catch (e) {
+      // 并行重复投递时可能撞 msg_seq：另一路已回复，不再向用户打错误
+      if (isMsgSeqDuplicateError(e)) {
+        console.warn('[LQBot] onQuote msg_seq 去重跳过 (' + cmd.name + ')');
+        return;
+      }
       console.error('[LQBot] onQuote handler error (' + cmd.name + '):', e);
       try { await reply('引用回复处理出错：' + (e as Error).message); } catch (e2) { console.error('[LQBot] reply failed:', e2); }
       return;
@@ -297,6 +302,10 @@ async function processEvent(cfg: Config, payload: any): Promise<void> {
   try {
     await handler(ctx);
   } catch (e) {
+    if (isMsgSeqDuplicateError(e)) {
+      console.warn('[LQBot] command msg_seq 去重跳过 /' + target);
+      return;
+    }
     console.error('[LQBot] command handler error:', e);
     try { await reply('命令执行出错：' + (e as Error).message); } catch (e2) { console.error('[LQBot] reply failed:', e2); }
   }

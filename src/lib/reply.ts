@@ -2,6 +2,9 @@
 // 被动回复：携带消息 id（d.id）作为 msg_id（群 5 分钟、单聊 60 分钟内有效）。
 // 同一 msg_id 多次被动回复必须递增 msg_seq（相同 msg_id+msg_seq 会失败），本文件自动递增。
 // 窗口内额度：单聊 4 次 / 群聊 5 次（超出后 QQ 拒绝）。
+//
+// 40054005「消息被去重，请检查请求msgseq」：Webhook 可能并行重复投递同一事件，
+// 两路都从 msg_seq=1 回复时后到的会被 QQ 拒绝。此时视为另一路已成功回复，吞掉错误。
 import * as qq from './qq.js';
 import type { Config, MediaType, Scene, SentMessage } from './types.js';
 
@@ -11,6 +14,31 @@ function toSentMessage(data: any): SentMessage {
   const refRaw = data && typeof data === 'object' && data.ext_info ? (data.ext_info as any).ref_idx : undefined;
   const refIdx = refRaw != null && refRaw !== '' ? String(refRaw) : null;
   return { id, refIdx };
+}
+
+/** 是否为 QQ 侧 msg_id+msg_seq 去重拒绝 */
+export function isMsgSeqDuplicateError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  return msg.includes('40054005') || msg.includes('消息被去重');
+}
+
+/** 发送被动消息；撞 seq 时静默当作已发送，避免把并行重复投递打成用户可见错误 */
+async function sendPassived(
+  cfg: Config,
+  scene: Scene,
+  openid: string,
+  body: Record<string, unknown>,
+): Promise<SentMessage> {
+  try {
+    const data = await qq.sendBody(cfg, scene, openid, body);
+    return toSentMessage(data);
+  } catch (e) {
+    if (isMsgSeqDuplicateError(e)) {
+      console.warn('[reply] msg_seq 去重，跳过重复发送 msg_id=' + String(body.msg_id || ''));
+      return { id: '', refIdx: null };
+    }
+    throw e;
+  }
 }
 
 export interface SceneReply {
@@ -45,17 +73,16 @@ export function createReply(cfg: Config, event: any, scene: Scene): SceneReply {
     reply: (content: string) => {
       ensureOpenid();
       const text = scene === 'group' ? '\n' + content : content;
-      return qq.sendBody(cfg, scene, openid, passived({ content: text, msg_type: 0 })).then(toSentMessage);
+      return sendPassived(cfg, scene, openid, passived({ content: text, msg_type: 0 }));
     },
     replyMarkdown: (content: string) => {
       ensureOpenid();
-      return qq.sendBody(cfg, scene, openid, passived({ msg_type: 2, markdown: { content } })).then(toSentMessage);
+      return sendPassived(cfg, scene, openid, passived({ msg_type: 2, markdown: { content } }));
     },
     replyMedia: async (fileType: MediaType, url: string): Promise<SentMessage> => {
       ensureOpenid();
       const fileInfo = await qq.uploadFile(cfg, scene, openid, fileType, url);
-      const data = await qq.sendBody(cfg, scene, openid, passived({ msg_type: 7, media: { file_info: fileInfo } }));
-      return toSentMessage(data);
+      return sendPassived(cfg, scene, openid, passived({ msg_type: 7, media: { file_info: fileInfo } }));
     },
   };
 }
