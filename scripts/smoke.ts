@@ -450,6 +450,198 @@ async function main(): Promise<void> {
 
   disableMockKv();
 
+  // ---------- /games ----------
+  // 东八区今天/明天，用于钉死日期过滤
+  function cnToday(): { month: number; day: number; label: string } {
+    const d = new Date(Date.now() + 8 * 3600 * 1000);
+    const month = d.getUTCMonth() + 1;
+    const day = d.getUTCDate();
+    return { month, day, label: month + '.' + day };
+  }
+  function cnTomorrow(): { month: number; day: number; label: string } {
+    const d = new Date(Date.now() + 8 * 3600 * 1000 + 86400000);
+    const month = d.getUTCMonth() + 1;
+    const day = d.getUTCDate();
+    return { month, day, label: month + '.' + day };
+  }
+  function messageBodies(): string[] {
+    return calls
+      .filter((c) => c.url.includes('/messages'))
+      .map((c) => String(c.body?.content ?? c.body?.markdown?.content ?? ''));
+  }
+  let gMsgSeq = 0;
+  async function runG(content: string, env: Record<string, string> = adminEnv): Promise<string[]> {
+    gMsgSeq += 1;
+    calls.length = 0;
+    await handleWebhook({
+      request: new Request('http://localhost/webhook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          op: 0,
+          t: 'C2C_MESSAGE_CREATE',
+          d: { id: 'ROBOT1.0_G' + gMsgSeq, content, author: { user_openid: 'u_test' } },
+        }),
+      }),
+      env,
+    });
+    return messageBodies();
+  }
+  function expectG(label: string, bodies: string[], needle: string): void {
+    const ok = bodies.some((b) => b.includes(needle));
+    if (!ok) fail++;
+    console.log((ok ? '✓' : '✗') + ' ' + label + (ok ? '' : '  实际: ' + JSON.stringify(bodies)));
+  }
+
+  // KV 未绑定
+  {
+    const bodies = await runG('/games');
+    expectG('/games KV 未绑定提示', bodies, 'KV 未绑定');
+  }
+
+  enableMockKv();
+
+  // 空列表
+  {
+    const bodies = await runG('/games');
+    expectG('/games 空列表标题', bodies, '# 🎮 小游戏列表（今天 ');
+    expectG('/games 空列表文案', bodies, '该日期暂无小游戏。');
+  }
+
+  // 日期格式非法
+  {
+    const bodies = await runG('/games 昨天');
+    expectG('/games 非法日期提示', bodies, '日期格式不支持');
+  }
+
+  // add 缺字段 / 时间无法解析 / 权限不足
+  {
+    const bodies = await runG('/games add 主办方：测试');
+    expectG('/games add 缺名称时间', bodies, '缺少必要字段');
+  }
+  {
+    const bodies = await runG('/games add 名称：X；时间：随便');
+    expectG('/games add 时间无法解析', bodies, '「时间」未识别到日期');
+  }
+  {
+    const bodies = await runG('/games add 名称：X；时间：9.10', userEnv);
+    expectG('/games add 等级1被拒', bodies, '权限不足：games add 需要等级 2');
+  }
+
+  // add 成功：文本 id + Markdown 卡片；字段排序 名称/时间在前
+  let addedId = '';
+  const today = cnToday();
+  {
+    const bodies = await runG('/games add 名称：方块躲猫猫；时间：' + today.label + ' 晚20:00；主办方：江苏大学；地址：mc.jsumc.fun');
+    const text = bodies.find((b) => b.includes('✓ 添加成功')) || '';
+    const card = bodies.find((b) => b.includes('# 🎮 方块躲猫猫')) || '';
+    const m = text.match(/id：`([^`]+)`/);
+    addedId = m ? m[1] : '';
+    expect('/games add 成功文本+id', !!m && /^G-[A-Z0-9]{5}$/.test(addedId), bodies);
+    expect('/games add Markdown 卡片字段',
+      card.includes('- **时间**：' + today.label + ' 晚20:00')
+      && card.includes('- **主办方**：江苏大学')
+      && card.includes('- **地址**：mc.jsumc.fun')
+      && card.includes('- **id**：`' + addedId + '`')
+      && card.indexOf('**时间**') < card.indexOf('**地址**')
+      && card.indexOf('**地址**') < card.indexOf('**主办方**'),
+      card);
+  }
+
+  // 冒号全半角混用 + 查当天
+  {
+    await runG('/games add 名称:混用冒号；时间：' + today.label);
+    const bodies = await runG('/games');
+    expectG('/games 查当天含方块躲猫猫', bodies, '### 方块躲猫猫（id：`' + addedId + '`）');
+    expectG('/games 查当天含混用冒号', bodies, '### 混用冒号（id：');
+    expect('/games 条目为三级标题', bodies.some((b) => b.includes('### 方块躲猫猫')), bodies);
+  }
+
+  // 按指定日期查询（今天）
+  {
+    const bodies = await runG('/games ' + today.label);
+    expectG('/games 按日期查中', bodies, '方块躲猫猫');
+    expect('/games 按日期标题无「今天」',
+      bodies.some((b) => b.includes('（' + today.month + '月' + today.day + '日）') && !b.includes('今天 ')),
+      bodies);
+  }
+
+  // all：含今天与明天，不含过去
+  const tomorrow = cnTomorrow();
+  {
+    await runG('/games add 名称：明日场；时间：' + tomorrow.label);
+    // 过去日期：1.1，仅当今天不是 1.1 时才有意义
+    if (!(today.month === 1 && today.day === 1)) {
+      await runG('/games add 名称：过去场；时间：1.1');
+    }
+    const bodies = await runG('/games all');
+    expectG('/games all 标题', bodies, '# 🎮 小游戏列表（今天及之后）');
+    expectG('/games all 含今天', bodies, '方块躲猫猫');
+    expectG('/games all 含明天', bodies, '明日场');
+    if (!(today.month === 1 && today.day === 1)) {
+      expect('/games all 不含过去场', !bodies.some((b) => b.includes('过去场')), bodies);
+    }
+    // 升序：明天场应出现在今天场之后
+    const joined = bodies.join('\n');
+    const iToday = joined.indexOf('方块躲猫猫');
+    const iTomorrow = joined.indexOf('明日场');
+    expect('/games all 按日期升序', iToday >= 0 && iTomorrow > iToday, { iToday, iTomorrow });
+  }
+
+  // del
+  {
+    const miss = await runG('/games del G-NOPE');
+    expectG('/games del 未找到', miss, '未找到 id：G-NOPE');
+    if (addedId) {
+      const ok = await runG('/games del ' + addedId);
+      expectG('/games del 成功', ok, '✓ 已删除：方块躲猫猫（' + addedId + '）');
+      const after = await runG('/games');
+      expect('/games 删除后列表不含', !after.some((b) => b.includes('方块躲猫猫')), after);
+    }
+  }
+
+  // subscribe 开关（私聊）
+  {
+    const on = await runG('/games subscribe');
+    expectG('/games subscribe 开启', on, '✓ 已开启本会话的小游戏订阅');
+    const off = await runG('/games subscribe');
+    expectG('/games subscribe 关闭', off, '✓ 已关闭本会话的小游戏订阅');
+  }
+
+  // 群订阅 + 私聊 add → 主动通知该群
+  {
+    enableMockKv();
+    gMsgSeq += 1;
+    await handleWebhook({
+      request: new Request('http://localhost/webhook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          op: 0,
+          t: 'GROUP_AT_MESSAGE_CREATE',
+          d: {
+            id: 'ROBOT1.0_GSUB',
+            content: '/games subscribe',
+            group_openid: 'g_sub',
+            author: { member_openid: 'u_admin', username: 'admin', member_role: 'admin' },
+          },
+        }),
+      }),
+      env: { ...adminEnv, SUPER_ADMIN_OPENID: 'u_admin' },
+    });
+    expectG('/games 群 subscribe', messageBodies(), '已开启本群的小游戏订阅');
+
+    calls.length = 0;
+    await runG('/games add 名称：群通知场；时间：' + tomorrow.label, adminEnv);
+    const notifyMsg = calls.find((c) => c.url.includes('/messages') && c.url.includes('g_sub'));
+    expect('/games add 通知订阅群',
+      !!notifyMsg && String(notifyMsg.body?.markdown?.content ?? '').includes('群通知场')
+      && String(notifyMsg.body?.markdown?.content ?? '').includes('订阅提醒'),
+      notifyMsg);
+  }
+
+  disableMockKv();
+
   if (fail > 0) {
     console.error('冒烟测试失败：' + fail + ' 项');
     process.exit(1);
