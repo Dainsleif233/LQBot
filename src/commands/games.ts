@@ -1,7 +1,7 @@
-// /games —— 小游戏信息板：按日期查询 / 添加 / 删除 / 场景订阅（群聊与私聊）。
-// 主命令等级 0（查询），add/del/subscribe 等级 2（全局管理员）。
+// /games —— 小游戏信息板：按日期查询 / 添加 / 修改 / 删除 / 场景订阅（群聊与私聊）。
+// 主命令等级 0（查询），add/edit/del/subscribe 等级 2（全局管理员）。
 // 数据存 KV（games 命名空间）：全局=游戏与订阅者索引，场景=订阅开关（只记录开）。
-// 订阅通知走主动消息（无 msg_id，不占被动窗口），受 QQ 每月主动消息额度限制，失败只计数。
+// 订阅通知（add/edit/del）走主动消息（无 msg_id，不占被动窗口），受 QQ 每月主动消息额度限制，失败只计数。
 import { LEVELS } from '../lib/permissions.js';
 import { defineCommand } from '../lib/define.js';
 import type { CommandContext, Scene } from '../lib/types.js';
@@ -240,6 +240,50 @@ export default defineCommand({
       },
     },
     {
+      // /games edit <id> 字段：值；字段：值（只改给出的字段；值留空 = 删除该字段）
+      name: 'edit',
+      description: '修改小游戏',
+      minLevel: LEVELS.GLOBAL_ADMIN, // 2
+      async handler(ctx: CommandContext): Promise<void> {
+        const ns = ctx.cfg.storage.ns(NS);
+        if (!ns.available) { await ctx.reply('KV 未绑定，小游戏功能不可用。'); return; }
+        const usage = '用法：/games edit <id> 字段：值；字段：值（id 在 /games 列表里可见；只改给出的字段，值留空=删除该字段）。\n示例：/games edit G-XXXX 时间：9.10 晚20:00；地址：mc.jsumc.fun';
+        const idArg = (ctx.args[0] || '').trim();
+        if (!idArg || /[：:]/.test(idArg)) { await ctx.reply(usage); return; }
+        const id = idArg.toUpperCase();
+        const game = await loadGame(ctx, id);
+        if (!game) { await ctx.reply('未找到 id：' + id); return; }
+        const fields = parseFields(ctx.args.slice(1).join(' '));
+        if (!Object.keys(fields).length) { await ctx.reply('未提供要修改的字段。\n' + usage); return; }
+        const blankRequired = ['名称', '时间'].filter((k) => fields[k] !== undefined && !fields[k]);
+        if (blankRequired.length) { await ctx.reply('「' + blankRequired.join('」「') + '」不能为空（其余字段留空=删除该字段）。'); return; }
+        if (fields['时间'] !== undefined && !dateOfText(fields['时间'])) {
+          await ctx.reply('「时间」未识别到日期，无法按日期查询。示例：2026.9.10 / 9月10日 / 9.10。');
+          return;
+        }
+        // 合并：有值则覆盖，空值则删除该字段；名称/时间在前，其余按字段名排序（与 add 一致）
+        const merged: Record<string, string> = { ...game.fields };
+        const changed: string[] = [];
+        for (const key of Object.keys(fields)) {
+          if (fields[key]) {
+            if (merged[key] !== fields[key]) changed.push(key);
+            merged[key] = fields[key];
+          } else {
+            if (merged[key] !== undefined) changed.push(key);
+            delete merged[key];
+          }
+        }
+        if (!changed.length) { await ctx.reply('字段值与当前一致，未做修改。'); return; }
+        game.fields = sortFields(merged);
+        await saveGame(ctx, game, await loadIndex(ctx));
+        // 通知订阅场景（主动消息）：改期/改地址等信息变更要让订阅者看到
+        const note = await notify(ctx, 'md',
+          cardMarkdown(id, game.fields) + '\n> 📢 订阅提醒：小游戏信息有更新（变更：' + changed.join('、') + '）。');
+        await ctx.reply('✓ 已修改：' + (game.fields['名称'] || id) + '（' + id + '）\n变更：' + changed.join('、') + (note ? '\n' + note : ''));
+        await ctx.replyMarkdown(cardMarkdown(id, game.fields));
+      },
+    },
+    {
       // /games del <id>
       name: 'del',
       description: '删除小游戏',
@@ -278,7 +322,7 @@ export default defineCommand({
           await store.set(SUB_KEY, '1');
           if (!subs.some((x) => x.scene === sType && x.openid === sOpenid)) subs.push({ scene: sType, openid: sOpenid });
           await ns.global.set('subs', JSON.stringify(subs));
-          await ctx.reply('✓ 已开启本' + (sType === 'group' ? '群' : '会话') + '的小游戏订阅（新增/删除时收到通知）。');
+          await ctx.reply('✓ 已开启本' + (sType === 'group' ? '群' : '会话') + '的小游戏订阅（新增/修改/删除时收到通知）。');
         } else {
           await store.del(SUB_KEY);
           await ns.global.set('subs', JSON.stringify(subs));

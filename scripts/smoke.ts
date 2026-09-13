@@ -612,6 +612,52 @@ async function main(): Promise<void> {
     expect('/games all 按日期升序', iToday >= 0 && iTomorrow > iToday, { iToday, iTomorrow });
   }
 
+  // edit：用法 / 未找到 / 权限 / 时间非法 / 改值与删字段（独立条目，不影响其它用例的断言）
+  let editId = '';
+  {
+    const created = await runG('/games add 名称：编辑场；时间：' + today.label + '；地址：old.example.com');
+    const m = (created.find((b) => b.includes('✓ 添加成功')) || '').match(/id：`([^`]+)`/);
+    editId = m ? m[1] : '';
+    expect('/games edit 前置条目创建', !!editId, created);
+  }
+  {
+    const usage = await runG('/games edit');
+    expectG('/games edit 缺参数提示用法', usage, '用法：/games edit <id>');
+    const noId = await runG('/games edit 名称：X');
+    expectG('/games edit 缺 id 提示用法', noId, '用法：/games edit <id>');
+    const miss = await runG('/games edit G-NOPE 名称：X');
+    expectG('/games edit 未找到 id', miss, '未找到 id：G-NOPE');
+    const denied = await runG('/games edit G-NOPE 名称：X', userEnv);
+    expectG('/games edit 等级1被拒', denied, '权限不足：games edit 需要等级 2');
+    const badTime = await runG('/games edit ' + editId + ' 时间：随便');
+    expectG('/games edit 时间无法解析', badTime, '「时间」未识别到日期');
+    const blankName = await runG('/games edit ' + editId + ' 名称：');
+    expectG('/games edit 名称不可置空', blankName, '「名称」不能为空');
+  }
+  if (editId) {
+    // 覆盖已有字段 + 新增字段；未给出的字段保持原值
+    const bodies = await runG('/games edit ' + editId + ' 地址：mc2.jsumc.fun；玩法：晚八点集合');
+    expectG('/games edit 成功文本', bodies, '✓ 已修改：编辑场（' + editId + '）');
+    expectG('/games edit 变更字段列表', bodies, '变更：地址、玩法');
+    const card = bodies.find((b) => b.includes('# 🎮 编辑场')) || '';
+    expect('/games edit 卡片覆盖+排序',
+      card.includes('- **时间**：' + today.label)
+      && card.includes('- **地址**：mc2.jsumc.fun')
+      && card.includes('- **玩法**：晚八点集合')
+      && card.indexOf('**时间**') < card.indexOf('**地址**'), card);
+
+    // 值未变化时不写 KV，直接提示
+    const same = await runG('/games edit ' + editId + ' 地址：mc2.jsumc.fun');
+    expectG('/games edit 值相同不写', same, '字段值与当前一致，未做修改。');
+
+    // 值留空 = 删除该字段
+    const cleared = await runG('/games edit ' + editId + ' 玩法：');
+    expectG('/games edit 空值删字段', cleared, '变更：玩法');
+    const list = await runG('/games ' + today.label);
+    const editedCard = list.find((b) => b.includes('编辑场')) || '';
+    expect('/games edit 删除后不显示该字段', !editedCard.includes('晚八点集合'), list);
+  }
+
   // del
   {
     const miss = await runG('/games del G-NOPE');
@@ -656,12 +702,25 @@ async function main(): Promise<void> {
     expectG('/games 群 subscribe', messageBodies(), '已开启本群的小游戏订阅');
 
     calls.length = 0;
-    await runG('/games add 名称：群通知场；时间：' + tomorrow.label, adminEnv);
+    const added = await runG('/games add 名称：群通知场；时间：' + tomorrow.label, adminEnv);
     const notifyMsg = calls.find((c) => c.url.includes('/messages') && c.url.includes('g_sub'));
     expect('/games add 通知订阅群',
       !!notifyMsg && String(notifyMsg.body?.markdown?.content ?? '').includes('群通知场')
       && String(notifyMsg.body?.markdown?.content ?? '').includes('订阅提醒'),
       notifyMsg);
+
+    // edit 同样通知订阅场景，并带上变更字段
+    const noticeId = ((added.find((b) => b.includes('✓ 添加成功')) || '').match(/id：`([^`]+)`/) || [])[1] || '';
+    calls.length = 0;
+    const edited = await runG('/games edit ' + noticeId + ' 地址：gsub.example.com', adminEnv);
+    const editNotify = calls.find((c) => c.url.includes('/messages') && c.url.includes('g_sub'));
+    const editMd = String(editNotify?.body?.markdown?.content ?? '');
+    expect('/games edit 通知订阅群',
+      !!noticeId && !!editNotify && editMd.includes('群通知场')
+      && editMd.includes('小游戏信息有更新') && editMd.includes('变更：地址')
+      && editMd.includes('- **地址**：gsub.example.com'),
+      editNotify);
+    expectG('/games edit 回复带通知计数', edited, '已通知订阅场景 1 个');
   }
 
   disableMockKv();
