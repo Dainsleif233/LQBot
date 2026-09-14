@@ -1,9 +1,9 @@
 // /permission —— 权限管理命令
 // 群聊 at 与私聊场景均可；权限要求 3（超级管理员）。
 // 用法：/permission [<user_openid> [<0-3>|reset]]
-import { resolveLevel, LEVELS, levelName, PERM_NS } from '../lib/permissions.js';
-import { defineCommand } from '../lib/define.js';
-import type { CommandContext } from '../lib/types.js';
+import { resolveLevel, LEVELS, levelName, PERM_NS } from '../libs/permissions.js';
+import { defineCommand } from '../libs/define.js';
+import type { CommandContext } from '../libs/types.js';
 
 export default defineCommand({
   name: 'permission',

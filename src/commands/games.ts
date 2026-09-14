@@ -2,9 +2,9 @@
 // 主命令等级 0（查询），add/edit/del/subscribe 等级 2（全局管理员）。
 // 数据存 KV（games 命名空间）：全局=游戏与订阅者索引；订阅状态只看索引（有本场景条目 = 已订阅）。
 // 订阅通知（add/edit/del）走主动消息（无 msg_id，不占被动窗口），受 QQ 每月主动消息额度限制，失败只计数。
-import { LEVELS } from '../lib/permissions.js';
-import { defineCommand } from '../lib/define.js';
-import type { CommandContext, Scene } from '../lib/types.js';
+import { LEVELS } from '../libs/permissions.js';
+import { defineCommand } from '../libs/define.js';
+import type { CommandContext, Scene } from '../libs/types.js';
 
 const NS = 'games';
 

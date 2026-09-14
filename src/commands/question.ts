@@ -6,9 +6,9 @@
 // 引用定位只认「题号」= 会话 id：写在每条会话消息末尾的提示行里（sessionTag），
 // 用户引用时随被引用正文一起回来，直接反查 s:<id>；不依赖发送响应的 ref_idx
 // （实测平台对同一条机器人消息可能给出两个不同的索引值），并要求被引用内容是机器人所发。
-import { LEVELS } from '../lib/permissions.js';
-import { defineCommand } from '../lib/define.js';
-import type { CommandContext, Config, Scene } from '../lib/types.js';
+import { LEVELS } from '../libs/permissions.js';
+import { defineCommand } from '../libs/define.js';
+import type { CommandContext, Config, Scene } from '../libs/types.js';
 
 const NS = 'question';
 const CATEGORY_ID = '8211471756443-023805e7';

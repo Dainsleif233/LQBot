@@ -10,7 +10,7 @@
 //
 // 字体：SVG 里不内嵌字体，靠 fontKey 让渲染器把字体注册进来（key = 字体文件内容的 sha256）。
 // 两个 key 对应 Mojangles（拉丁 / Minecraft Seven）与 unifont-subset（中文，缺字回退）。
-import type { MediaType } from '../../lib/types.js';
+import type { MediaType } from '../../libs/types.js';
 
 /** 接口基地址 */
 export const JSUMC_API_BASE = 'https://api.jsumc.fun';

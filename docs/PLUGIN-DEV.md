@@ -9,9 +9,9 @@
 
 ```typescript
 // src/commands/hello.ts
-import { LEVELS } from '../lib/permissions.js';
-import { defineCommand } from '../lib/define.js';
-import type { CommandContext } from '../lib/types.js';
+import { LEVELS } from '../libs/permissions.js';
+import { defineCommand } from '../libs/define.js';
+import type { CommandContext } from '../libs/types.js';
 
 export default defineCommand({
   name: 'hello',            // ≤8 字；aliases ≤8 字；description ≤15 字
@@ -24,16 +24,16 @@ export default defineCommand({
 });
 ```
 
-然后 import 到 `src/lib/registry.ts` 的 `commands` 数组，执行 `npm run register` 同步指令面板。
+然后 import 到 `src/libs/registry.ts` 的 `commands` 数组，执行 `npm run register` 同步指令面板。
 注意：具名导出（`export const name = …`）已不再被读取，只有 default 导出生效。
 
 ### 命令专用库
 
 只服务某个命令的模块（SVG 渲染、第三方 API 客户端、数据解析等）放 **`src/commands/libs/`**，
 命名与命令对应（如 `libs/mccard.ts`、`libs/jsumc.ts`），命令里按 `./libs/xxx.js` 引用（import 仍写 `.js` 后缀）。
-从 `libs/` 引用框架模块要多退一级（`../../lib/types.js`）；`libs/` 内部的相对引用照旧。
+从 `libs/` 引用框架模块要多退一级（`../../libs/types.js`）；`libs/` 内部的相对引用照旧。
 
-判断标准：**只被一个命令用**就放 `libs/`；被多个命令共用、或属于框架能力（配置 / KV / QQ 客户端 / 回复构造）的放 `src/lib/`。
+判断标准：**只被一个命令用**就放 `libs/`；被多个命令共用、或属于框架能力（配置 / KV / QQ 客户端 / 回复构造）的放 `src/libs/`。
 
 ## 2. ctx 与权限
 

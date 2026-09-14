@@ -227,7 +227,7 @@ async function processEvent(cfg: Config, payload: any): Promise<void> {
   // event.id 是事件 id（C2C_MESSAGE_CREATE:...），QQ 被动回复不认它。
   // 只认消息 id（d.id）；event.id 是事件 id，作 msg_id 会被 QQ 拒绝，不做回退。
   const messageId = d.id || '';
-  // 去重：QQ 可能重复投递同一 msg_id，窗口期内视为重复并跳过（实现见 lib/dedupe.ts）。
+  // 去重：QQ 可能重复投递同一 msg_id，窗口期内视为重复并跳过（实现见 libs/dedupe.ts）。
   if (await isDuplicate(cfg, messageId)) {
     return;
   }

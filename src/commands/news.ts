@@ -1,10 +1,10 @@
 // /news —— 开关当前场景（群聊或私聊）的新闻推送订阅，语义与 /games subscribe 一致。
 // 等级 2（全局管理员）：外部新闻源 POST /news 时，向订阅过的群/私聊推送 Markdown。
 // 订阅状态只看 news 命名空间的订阅者索引（news:global:subs）：有本场景条目 = 已订阅。
-import { defineCommand } from '../lib/define.js';
-import { LEVELS } from '../lib/permissions.js';
+import { defineCommand } from '../libs/define.js';
+import { LEVELS } from '../libs/permissions.js';
 import { toggleSubscription } from './libs/news.js';
-import type { CommandContext, Scene } from '../lib/types.js';
+import type { CommandContext, Scene } from '../libs/types.js';
 
 export default defineCommand({
   name: 'news',

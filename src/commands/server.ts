@@ -8,12 +8,12 @@
 // 数据存 KV（server 命名空间）的**场景变量**：群聊 server:group:<group_openid>:list，
 // 私聊 server:user:<user_openid>:list —— 每个群 / 每个用户各一份列表，互不影响。
 // 状态取自 api.jsumc.fun（批量 ping）；SVG 交给它的 /svg 渲染接口换成 PNG 地址后再发图（见 libs/jsumc.ts）。
-import { LEVELS } from '../lib/permissions.js';
-import { defineCommand } from '../lib/define.js';
+import { LEVELS } from '../libs/permissions.js';
+import { defineCommand } from '../libs/define.js';
 import { pingServers, renderSvgToImageUrl, JSUMC_IMAGE_TYPE } from './libs/jsumc.js';
 import { renderCard, renderList, snapshotTime, toServer } from './libs/mccard.js';
 import type { SvgImage } from './libs/mccard.js';
-import type { CommandContext, Store } from '../lib/types.js';
+import type { CommandContext, Store } from '../libs/types.js';
 
 const NS = 'server';
 /** 场景列表在 KV 里的 key（实际 key 形如 server:group:<gid>:list） */

@@ -21,7 +21,7 @@ LQBot/
   edge-functions/            # 仅对外暴露的接口
     webhook.ts                # POST /webhook 入口（onRequest）
   src/                       # 所有内部模块（被边缘构建打包进函数）
-    lib/
+    libs/
       config.ts              # 从 env 构建运行时配置
       storage.ts             # KV 持久化封装（命名空间 × 作用域：global/group/user）
       dedupe.ts              # 消息去重（窗口内 msg_id 汇总到单 key）
@@ -100,11 +100,11 @@ LQBot/
 ============================================================
 - 触发：群聊 @机器人 消息、私聊消息。
 - 格式：/<command> [args]（参数可无可有多个）。命令模块用 defineCommand 声明并以
-  export default 导出（src/lib/define.ts；支持多级子命令，见 docs/PLUGIN-DEV.md）。
+  export default 导出（src/libs/define.ts；支持多级子命令，见 docs/PLUGIN-DEV.md）。
 - 权限：由各 handler 用挡位比较（level >= minLevel 通过；否则拒绝回复）；
   子命令可单独设置 minLevel 覆盖主命令。
 - 反馈：按场景自动发到群（群聊）或私聊（单聊），被动回复携带消息 id（d.id）作 msg_id。
-- 新增命令：见 docs/PLUGIN-DEV.md，并在 src/lib/registry.ts 的 commands 数组里 import。
+- 新增命令：见 docs/PLUGIN-DEV.md，并在 src/libs/registry.ts 的 commands 数组里 import。
 
 ============================================================
 六、内置命令
@@ -174,7 +174,7 @@ LQBot/
 十、待确认假设 / 边界
 ============================================================
 - 群成员接口返回结构（role / nick 字段）官方文档未完整开放，代码已做兼容：
-  若实测字段不同，需调整 src/lib/permissions.ts 的 isGroupAdminRole（当前：role 含 admin/owner/群主 或 数字>=2 判为群管）。
+  若实测字段不同，需调整 src/libs/permissions.ts 的 isGroupAdminRole（当前：role 含 admin/owner/群主 或 数字>=2 判为群管）。
 - 主动消息限频（群/单聊 每月 4 条）由 QQ 侧控制；本项目优先使用被动回复。
 - 当前 .env 中的 APP_SECRET 为官方文档示例密钥（仅用于本地签名验证），上线请替换为真实凭证。
 
@@ -183,7 +183,7 @@ LQBot/
 ============================================================
 - 初始化项目骨架：package.json、.env.example、README.md、.gitignore
 - 实现权限系统、命令系统、两个内置命令（/permission、/debug）
-- vendor tweetnacl 到 src/lib/tweetnacl.js（因边缘运行时缺 Ed25519）
+- vendor tweetnacl 到 src/libs/tweetnacl.js（因边缘运行时缺 Ed25519）
 - 按用户要求把内部模块从 edge-functions/{lib,commands} 迁移到 src/，
   edge-functions 仅保留 webhook.ts；同步更新 README 目录树与「新增命令」指引
 - 全程未执行 git commit / push（需用户明确授权）

@@ -6,8 +6,8 @@
 //
 // 推送走**主动消息**（无 msg_id，不占被动回复窗口），受 QQ 每月主动消息额度限制（群/单聊各 4 条），
 // 单条失败只计数并打日志，不抛出——避免一篇新闻把整批推送带崩。
-import type { Config, Scene } from '../../lib/types.js';
-import * as qq from '../../lib/qq.js';
+import type { Config, Scene } from '../../libs/types.js';
+import * as qq from '../../libs/qq.js';
 
 /** 新闻数据命名空间（key 形如 news:global:subs） */
 export const NEWS_NS = 'news';

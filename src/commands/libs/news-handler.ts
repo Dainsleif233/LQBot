@@ -13,9 +13,9 @@
 //    - 不能 new Headers()，只能读平台注入的 request.headers；
 //    - 没有 Response.json()，统一用 new Response(JSON.stringify(...), { headers })。
 // ⚠️ 推送是同步 await 完再返回的（边缘运行时可能在返回后立刻冻结 isolate，waitUntil 会丢推送）。
-import { createConfig } from '../../lib/config.js';
+import { createConfig } from '../../libs/config.js';
 import { buildMarkdown, isSecretValid, pushToSubscribers } from './news.js';
-import type { EdgeContext } from '../../lib/types.js';
+import type { EdgeContext } from '../../libs/types.js';
 import type { NewsItem } from './news.js';
 
 const jsonHeaders: Record<string, string> = { 'Content-Type': 'application/json; charset=utf-8' };
