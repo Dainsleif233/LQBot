@@ -4,8 +4,9 @@ import permissionCmd from '../commands/permission.js';
 import debugCmd from '../commands/debug.js';
 import gamesCmd from '../commands/games.js';
 import questionCmd from '../commands/question.js';
+import serverCmd from '../commands/server.js';
 // 每个命令模块 export default defineCommand({...})（见 src/lib/define.ts），在此挂载进 commands 数组。
-export const commands: Command[] = [permissionCmd, debugCmd, gamesCmd, questionCmd];
+export const commands: Command[] = [permissionCmd, debugCmd, gamesCmd, questionCmd, serverCmd];
 export interface ParsedCommand {
   name: string;
   args: string[];

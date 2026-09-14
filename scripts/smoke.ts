@@ -37,9 +37,41 @@ let mockDrawQuestion: any = {
   answers: [],
   analysis: '每件2点，全套8点。',
 };
+/** jsumc /ping 的默认桩：在线、3/20、23ms */
+const onlinePing = (host: string): unknown => ({
+  server: host, target: host + ':25565', latency: 23,
+  info: {
+    version: { protocol: 773, name: 'Velocity 1.20' },
+    players: { online: 3, max: 20 },
+    description: { text: '测试服 ' + host },
+    favicon: '',
+  },
+});
+let mockPing: (host: string) => unknown = onlinePing;
+/** 为 true 时 /ping 整体 500（模拟状态接口故障） */
+let pingFail = false;
+/** 交给渲染接口的 SVG 文本（每次命令执行前清空） */
+const svgBodies: string[] = [];
+
 // 桩掉 fetch：token 返回假 token；/files 返回固定 file_info；消息发送返回递增 ref_idx；题库可切换
 globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
   const url = String((input as Request)?.url ?? input);
+  // jsumc.fun 桩：/ping 按入参返回状态、/svg 只回状态码 + X-Cache-Key（命令不读 PNG 响应体）。
+  // 放在 JSON.parse 之前——/svg 的 body 是裸 SVG 文本，不是 JSON。
+  if (url.startsWith('https://api.jsumc.fun/ping')) {
+    if (pingFail) return new Response(JSON.stringify({ error: 'ping 服务不可用' }), { status: 500 });
+    const req = JSON.parse(String(init?.body || '{}')) as { servers?: string[] };
+    return new Response(JSON.stringify((req.servers || []).map((h) => mockPing(h))),
+      { status: 200, headers: { 'Content-Type': 'application/json' } });
+  }
+  if (url.startsWith('https://api.jsumc.fun/svg')) {
+    if (init?.method === 'POST') {
+      svgBodies.push(String(init.body));
+      // 渲染接口以响应头 X-Cache-Key 给出 cacheKey，命令据此拼 GET 图片地址
+      return new Response('PNG', { status: 200, headers: { 'X-Cache-Key': 'c'.repeat(64) } });
+    }
+    return new Response('PNG', { status: 200 });
+  }
   const body = init?.body ? JSON.parse(String(init.body)) : {};
   if (url.includes('getAppAccessToken')) {
     return new Response(JSON.stringify({ access_token: 'tok', expires_in: 7200 }), { status: 200 });
@@ -762,6 +794,163 @@ async function main(): Promise<void> {
     await runG('/games add 名称：残留索引场；时间：' + tomorrow.label, adminEnv);
     expect('/games 残留索引退订后不通知',
       !calls.some((c) => c.url.includes('/messages') && c.url.includes('g_legacy')), calls);
+  }
+
+  // ---------- /server ----------
+  let srvSeq = 0;
+  /** 私聊执行 /server（超管身份，等级 3）；返回本次发出的消息文本 */
+  async function runSrv(content: string, env: Record<string, string> = adminEnv): Promise<string[]> {
+    srvSeq += 1;
+    calls.length = 0;
+    svgBodies.length = 0;
+    await handleWebhook({
+      request: new Request('http://localhost/webhook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          op: 0,
+          t: 'C2C_MESSAGE_CREATE',
+          d: { id: 'ROBOT1.0_SRV' + srvSeq, content, author: { user_openid: 'u_test' } },
+        }),
+      }),
+      env,
+    });
+    return messageBodies();
+  }
+  /** 群聊执行 /server（指定 member_role；超管仍设为 u_admin，测试用例里用 u_member） */
+  async function runGroupAs(content: string, groupOpenid: string, msgId: string, role: string): Promise<string[]> {
+    calls.length = 0;
+    svgBodies.length = 0;
+    await handleWebhook({
+      request: new Request('http://localhost/webhook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          op: 0,
+          t: 'GROUP_AT_MESSAGE_CREATE',
+          d: {
+            id: msgId,
+            content,
+            group_openid: groupOpenid,
+            author: { member_openid: 'u_member', username: 'member', member_role: role },
+          },
+        }),
+      }),
+      env: { ...adminEnv, SUPER_ADMIN_OPENID: 'u_admin' },
+    });
+    return messageBodies();
+  }
+  /** 最近一次富媒体发送（msg_type=7）与其上传来源（/files 的 file_type + url） */
+  function lastMedia(): { fileInfo?: string; uploadUrl?: string; fileType?: number } {
+    const msg = [...calls].reverse().find((c) => c.url.includes('/messages') && c.body?.msg_type === 7);
+    const up = [...calls].reverse().find((c) => c.url.includes('/files'));
+    return { fileInfo: msg?.body?.media?.file_info, uploadUrl: up?.body?.url, fileType: up?.body?.file_type };
+  }
+
+  // KV 未绑定（前面的 /games 用例还开着内存 KV，先关掉）
+  {
+    disableMockKv();
+    const bodies = await runSrv('/server');
+    expectG('/server KV 未绑定提示', bodies, 'KV 未绑定');
+  }
+
+  enableMockKv();
+
+  // 空列表
+  {
+    const bodies = await runSrv('/server');
+    expectG('/server 空列表提示', bodies, '还没有添加服务器');
+  }
+
+  // add：参数与地址校验
+  {
+    expectG('/server add 缺参数回用法', await runSrv('/server add'), '用法：/server add <地址> [位置]');
+    expectG('/server add 地址非法', await runSrv('/server add bad/addr'), '地址格式不对');
+    expectG('/server add 位置非数字', await runSrv('/server add mc.test.cn x'), '位置要写正整数');
+    expectG('/server add 位置越界', await runSrv('/server add mc.test.cn 9'), '位置超出范围');
+  }
+
+  // add：成功（含探测）/ 重复 / 指定位置 / KV 落点
+  {
+    const bodies = await runSrv('/server add mc.test.cn');
+    expectG('/server add 成功', bodies, '✓ 已添加 mc.test.cn（第 1 位，共 1 台）');
+    expectG('/server add 带探测结果', bodies, '探测：在线 3/20，延迟 23ms，版本 Velocity 1.20');
+    expectG('/server add 回执带列表', bodies, '1. mc.test.cn');
+    expectG('/server add 重复提示', await runSrv('/server add mc.test.cn'), '已在列表里（第 1 位）');
+    const ins = await runSrv('/server add a.example.com 1');
+    expectG('/server add 指定位置', ins, '✓ 已添加 a.example.com（第 1 位，共 2 台）');
+    expect('/server add 指定位置顺序', /1\. a\.example\.com\n2\. mc\.test\.cn/.test(ins.join('\n')), ins);
+    expect('/server 列表存用户场景', kvMap.get('server:user:u_test:list') === JSON.stringify(['a.example.com', 'mc.test.cn']),
+      kvMap.get('server:user:u_test:list'));
+  }
+
+  // 列表图片：POST /svg 拿 cacheKey -> 用 GET 地址上传 -> msg_type=7 发送
+  {
+    const bodies = await runSrv('/server');
+    const media = lastMedia();
+    expect('/server 列表出图', media.fileInfo === 'FI_SMOKE' && media.fileType === 1 &&
+      /^https:\/\/api\.jsumc\.fun\/svg\?key=c{64}$/.test(media.uploadUrl || ''), media);
+    expect('/server 列表图含两台服务器',
+      svgBodies.length === 1 && svgBodies[0].includes('a.example.com') && svgBodies[0].includes('mc.test.cn')
+      && svgBodies[0].includes('服务器列表') && !svgBodies[0].includes('@font-face'), svgBodies.map((s) => s.length));
+    expect('/server 列表不再发文字', bodies.every((b) => b === ''), bodies);
+  }
+
+  // 单台查询：带参数出单卡，不带列表标题
+  {
+    await runSrv('/server mc.test.cn');
+    const media = lastMedia();
+    expect('/server <地址> 出单卡图', media.fileType === 1 &&
+      /^https:\/\/api\.jsumc\.fun\/svg\?key=c{64}$/.test(media.uploadUrl || ''), media);
+    expect('/server <地址> SVG 只含这一台',
+      svgBodies.length === 1 && svgBodies[0].includes('mc.test.cn') && !svgBodies[0].includes('a.example.com')
+      && !svgBodies[0].includes('服务器列表'), svgBodies[0]?.length);
+  }
+
+  // 离线服务器照常出图（无法连接）
+  {
+    mockPing = (host) => ({ server: host, error: 'connect timeout' });
+    await runSrv('/server down.example.com');
+    expect('/server 离线也出图', svgBodies.length === 1 && svgBodies[0].includes('无法连接'), svgBodies[0]?.slice(0, 120));
+    mockPing = onlinePing;
+  }
+
+  // 状态接口整体故障：文字报错、不出图
+  {
+    pingFail = true;
+    const bodies = await runSrv('/server');
+    expectG('/server 接口故障提示', bodies, '获取服务器状态失败');
+    expect('/server 接口故障不出图', svgBodies.length === 0, svgBodies.length);
+    pingFail = false;
+  }
+
+  // del：未命中 / 越界 / 按地址 / 按位置
+  {
+    expectG('/server del 未命中', await runSrv('/server del nope.example.com'), '列表里没有 nope.example.com');
+    expectG('/server del 位置越界', await runSrv('/server del 9'), '位置超出范围');
+    expectG('/server del 按地址', await runSrv('/server del mc.test.cn'), '✓ 已删除 mc.test.cn（原第 2 位，剩 1 台）');
+    expectG('/server del 按位置', await runSrv('/server del 1'), '✓ 已删除 a.example.com（原第 1 位，剩 0 台）');
+    expect('/server 删空后 KV 为空数组', kvMap.get('server:user:u_test:list') === '[]', kvMap.get('server:user:u_test:list'));
+  }
+
+  // 权限：群聊普通成员（等级 0）不能增删，查询不受影响
+  {
+    const denied = await runGroupAs('/server add mc.test.cn', 'g_srv', 'ROBOT1.0_SRVG1', 'member');
+    expect('/server add 群成员被拒', denied.some((b) => b.includes('权限不足：server add 需要等级 1')), denied);
+    const deniedDel = await runGroupAs('/server del mc.test.cn', 'g_srv', 'ROBOT1.0_SRVG2', 'member');
+    expect('/server del 群成员被拒', deniedDel.some((b) => b.includes('权限不足：server del 需要等级 1')), deniedDel);
+    const query = await runGroupAs('/server', 'g_srv', 'ROBOT1.0_SRVG3', 'member');
+    expectG('/server 查询对群成员开放', query, '本群还没有添加服务器');
+  }
+
+  // 群聊与私聊的列表互相隔离
+  {
+    const added = await runGroupAs('/server add g.example.com', 'g_srv', 'ROBOT1.0_SRVG4', 'admin');
+    expectG('/server 群聊添加成功', added, '✓ 已添加 g.example.com（第 1 位，共 1 台）');
+    expect('/server 群列表存群场景', kvMap.get('server:group:g_srv:list') === JSON.stringify(['g.example.com']),
+      kvMap.get('server:group:g_srv:list'));
+    const priv = await runSrv('/server');
+    expectG('/server 私聊看不到群列表', priv, '本会话还没有添加服务器');
   }
 
   disableMockKv();
