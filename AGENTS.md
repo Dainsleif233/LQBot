@@ -25,7 +25,8 @@ LQBot/
 │   │   ├── registry.ts          # 命令注册 + 解析 + 别名
 │   │   ├── reply.ts             # 按场景构造被动回复
 │   │   └── handler.ts           # Webhook 主逻辑（验签/地址校验/分发/去重/权限/执行）
-│   └── commands/                # 插件命令（permission/debug），开发指南见 docs/PLUGIN-DEV.md
+│   └── commands/                # 插件命令（permission/debug/…）
+│       └── libs/                # 命令专用库（只服务某个命令的模块，如 SVG 渲染、第三方 API 客户端）
 ├── scripts/
 │   └── register.ts             # 指令面板同步脚本（npm run register）
 ├── docs/                        # 项目文档（DEPLOY / PLUGIN-DEV / SUMMARY）
