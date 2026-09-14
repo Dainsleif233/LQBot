@@ -915,6 +915,27 @@ async function main(): Promise<void> {
     mockPing = onlinePing;
   }
 
+  // 传统 § 代码的 MOTD（部分服务端回纯字符串而不是 JSON 组件，如 mod.jsumc.fun）：颜色要还原、§ 不能漏进图
+  {
+    mockPing = (host) => ({
+      server: host, target: host + ':25565', latency: 12,
+      info: {
+        version: { protocol: 773, name: '1.21.1' },
+        players: { online: 1, max: 20 },
+        // 第一行：§2 深绿 / §e 黄 / §6 金；第二行：§b 青 + §k 混淆、§a 绿，末尾接 Bungee 十六进制色 §x§F§F§0§0§0§0
+        description: '§2江苏大学§eMinecraft§6同好会\n§b§k----§a模组服§b----§x§F§F§0§0§0§0端',
+      },
+    });
+    await runSrv('/server mod.test.cn');
+    const svg = svgBodies[0] || '';
+    expect('/server § 代码还原颜色（含 §x 十六进制）',
+      svg.includes('>江苏大学<') && svg.includes('fill="#00AA00"') && svg.includes('fill="#FFFF55"')
+      && svg.includes('fill="#FFAA00"') && svg.includes('fill="#55FFFF"') && svg.includes('fill="#FF0000"')
+      && !svg.includes('§'),
+      svg.slice(0, 300));
+    mockPing = onlinePing;
+  }
+
   // 状态接口整体故障：文字报错、不出图
   {
     pingFail = true;

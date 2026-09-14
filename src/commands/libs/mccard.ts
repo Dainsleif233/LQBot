@@ -81,6 +81,63 @@ function mergeStyle<T extends object, P extends object>(base: T, patch: P): T & 
   return Object.assign({}, base, patch) as T & P;
 }
 
+/**
+ * 传统 § 代码（1.0 之前就有的那套）。接口对不同服务器返回的 MOTD 形态不一样：
+ * 有的给 JSON 聊天组件（{"extra":[...]}），有的直接给带 § 代码的纯字符串
+ * （如 mod.jsumc.fun："§2江苏大学§eMinecraft…"），两种都要还原成同样的样式片段。
+ */
+const LEGACY_COLOR_NAMES: Record<string, string> = {
+  '0': 'black', '1': 'dark_blue', '2': 'dark_green', '3': 'dark_aqua',
+  '4': 'dark_red', '5': 'dark_purple', '6': 'gold', '7': 'gray',
+  '8': 'dark_gray', '9': 'blue', a: 'green', b: 'aqua',
+  c: 'red', d: 'light_purple', e: 'yellow', f: 'white',
+};
+/** §k-§o 是样式、§r 复位（颜色回白，五种样式全清，与原版一致） */
+const LEGACY_STYLE_CODES: Record<string, Partial<Run>> = {
+  k: { obfuscated: true }, l: { bold: true }, m: { strikethrough: true }, n: { underlined: true }, o: { italic: true },
+  r: { color: '#FFFFFF', bold: false, italic: false, underlined: false, strikethrough: false, obfuscated: false },
+};
+
+/** §x 后接 6 组 §<hex>：BungeeCord / Velocity 扩展的 RGB 颜色（§x§r§r§g§g§b§b） */
+function readLegacyHex(text: string, i: number): { color: string; next: number } | null {
+  let hex = '#';
+  let j = i + 2;
+  for (let k = 0; k < 6; k++) {
+    if (text[j] !== '§' || !/[0-9a-fA-F]/.test(text[j + 1] || '')) return null;
+    hex += text[j + 1];
+    j += 2;
+  }
+  return { color: hex.toUpperCase(), next: j };
+}
+
+/**
+ * 把一段文本按 § 代码切成带样式的片段（原版的分解规则）：
+ * 有效代码切换样式并从文本里删掉；无效代码只丢掉 §、后面的字符照常当正文。
+ */
+function pushStyledText(text: string, style: Run, out: Run[]): void {
+  if (!text) return;
+  let cur = style;
+  let buf = '';
+  const flush = (): void => { if (buf) { out.push(mergeStyle(cur, { text: buf })); buf = ''; } };
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch !== '§') { buf += ch; continue; }
+    if (i + 1 >= text.length) break; // 结尾孤立的 § 直接丢掉
+    const code = text[i + 1].toLowerCase();
+    if (code === 'x') {
+      const hex = readLegacyHex(text, i);
+      if (hex) { flush(); cur = mergeStyle(cur, { color: hex.color }); i = hex.next - 1; continue; }
+    }
+    const colorName = LEGACY_COLOR_NAMES[code];
+    const patch: Partial<Run> | undefined = colorName ? { color: NAMED_COLORS[colorName] } : LEGACY_STYLE_CODES[code];
+    if (!patch) continue; // 无效代码：丢掉 §，下一个字符按正文处理
+    flush();
+    cur = mergeStyle(cur, patch);
+    i += 1;
+  }
+  flush();
+}
+
 function plainText(node: unknown): string {
   return flattenComponent(node, DEFAULT_STYLE, []).map((r) => r.text).join('');
 }
@@ -92,7 +149,7 @@ function flattenComponent(node: unknown, inherited: Run, out: Run[]): Run[] {
     for (const item of node) flattenComponent(item, inherited, out);
     return out;
   }
-  if (typeof node !== 'object') { out.push(mergeStyle(inherited, { text: String(node) })); return out; }
+  if (typeof node !== 'object') { pushStyledText(String(node), inherited, out); return out; }
   const n = node as Record<string, unknown>;
 
   let style = inherited;
@@ -123,7 +180,7 @@ function flattenComponent(node: unknown, inherited: Run, out: Run[]): Run[] {
   } else if (typeof n.keybind === 'string') text = n.keybind;
   else if (typeof n.selector === 'string') text = n.selector;
 
-  if (text) out.push(mergeStyle(style, { text }));
+  if (text) pushStyledText(text, style, out);
 
   if (Array.isArray(n.extra)) for (const e of n.extra) flattenComponent(e, style, out);
   return out;
