@@ -516,6 +516,28 @@ async function main(): Promise<void> {
     if (!ok) fail++;
     console.log((ok ? '✓' : '✗') + ' ' + label + (ok ? '' : '  实际: ' + JSON.stringify(bodies)));
   }
+  /** 群聊 AT 消息（超管身份），返回本次发出的消息体 */
+  async function runGroup(content: string, groupOpenid: string, msgId: string): Promise<string[]> {
+    calls.length = 0;
+    await handleWebhook({
+      request: new Request('http://localhost/webhook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          op: 0,
+          t: 'GROUP_AT_MESSAGE_CREATE',
+          d: {
+            id: msgId,
+            content,
+            group_openid: groupOpenid,
+            author: { member_openid: 'u_admin', username: 'admin', member_role: 'admin' },
+          },
+        }),
+      }),
+      env: { ...adminEnv, SUPER_ADMIN_OPENID: 'u_admin' },
+    });
+    return messageBodies();
+  }
 
   // KV 未绑定
   {
@@ -721,6 +743,23 @@ async function main(): Promise<void> {
       && editMd.includes('- **地址**：gsub.example.com'),
       editNotify);
     expectG('/games edit 回复带通知计数', edited, '已通知订阅场景 1 个');
+  }
+
+  // 退订（群）：回归——曾只删场景开关、没摘全局索引，退订后照旧收到通知
+  {
+    expectG('/games 群退订', await runGroup('/games subscribe', 'g_sub', 'ROBOT1.0_GUNSUB'), '已关闭本群的小游戏订阅');
+    calls.length = 0;
+    await runG('/games add 名称：退订后场；时间：' + tomorrow.label, adminEnv);
+    expect('/games 退订后不再通知该群',
+      !calls.some((c) => c.url.includes('/messages') && c.url.includes('g_sub')), calls);
+
+    // 索引条目即订阅状态：有本场景条目 = 已订阅，一次 /games subscribe 即退订（旧版本只删开关、留下索引的残留数据同样按此处理）
+    kvMap.set('games:global:subs', JSON.stringify([{ scene: 'group', openid: 'g_legacy' }]));
+    expectG('/games 残留索引视为已订阅', await runGroup('/games subscribe', 'g_legacy', 'ROBOT1.0_GOFF1'), '已关闭本群的小游戏订阅');
+    calls.length = 0;
+    await runG('/games add 名称：残留索引场；时间：' + tomorrow.label, adminEnv);
+    expect('/games 残留索引退订后不通知',
+      !calls.some((c) => c.url.includes('/messages') && c.url.includes('g_legacy')), calls);
   }
 
   disableMockKv();

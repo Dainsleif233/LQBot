@@ -1,13 +1,12 @@
 // /games —— 小游戏信息板：按日期查询 / 添加 / 修改 / 删除 / 场景订阅（群聊与私聊）。
 // 主命令等级 0（查询），add/edit/del/subscribe 等级 2（全局管理员）。
-// 数据存 KV（games 命名空间）：全局=游戏与订阅者索引，场景=订阅开关（只记录开）。
+// 数据存 KV（games 命名空间）：全局=游戏与订阅者索引；订阅状态只看索引（有本场景条目 = 已订阅）。
 // 订阅通知（add/edit/del）走主动消息（无 msg_id，不占被动窗口），受 QQ 每月主动消息额度限制，失败只计数。
 import { LEVELS } from '../lib/permissions.js';
 import { defineCommand } from '../lib/define.js';
 import type { CommandContext, Scene } from '../lib/types.js';
 
 const NS = 'games';
-const SUB_KEY = 'sub';
 
 interface Game {
   id: string;
@@ -304,30 +303,24 @@ export default defineCommand({
       },
     },
     {
-      // /games subscribe：开关当前场景（群聊或私聊）的订阅；KV 只记录开
+      // /games subscribe：开关当前场景（群聊或私聊）的订阅；订阅状态 = 全局索引里有本场景
       name: 'subscribe',
       description: '开关订阅',
       minLevel: LEVELS.GLOBAL_ADMIN, // 2
       async handler(ctx: CommandContext): Promise<void> {
         const ns = ctx.cfg.storage.ns(NS);
         if (!ns.available) { await ctx.reply('KV 未绑定，小游戏功能不可用。'); return; }
-        const store = ns.scene(ctx);
-        if (!store) { await ctx.reply('无法确定当前场景（缺少 openid），无法订阅。'); return; }
-        const cur = await store.get(SUB_KEY);
-        const turningOn = cur !== '1';
-        const sceneName = ctx.scene === 'group' ? '群聊' : '私聊';
-        let subs = await subscribers(ctx);
         const [sType, sOpenid] = sceneKey(ctx).split(':') as [Scene, string];
-        if (turningOn) {
-          await store.set(SUB_KEY, '1');
-          if (!subs.some((x) => x.scene === sType && x.openid === sOpenid)) subs.push({ scene: sType, openid: sOpenid });
-          await ns.global.set('subs', JSON.stringify(subs));
-          await ctx.reply('✓ 已开启本' + (sType === 'group' ? '群' : '会话') + '的小游戏订阅（新增/修改/删除时收到通知）。');
-        } else {
-          await store.del(SUB_KEY);
-          await ns.global.set('subs', JSON.stringify(subs));
-          await ctx.reply('✓ 已关闭本' + (sType === 'group' ? '群' : '会话') + '的小游戏订阅。');
-        }
+        if (!sOpenid) { await ctx.reply('无法确定当前场景（缺少 openid），无法订阅。'); return; }
+        const subs = await subscribers(ctx);
+        const on = subs.some((x) => x.scene === sType && x.openid === sOpenid);
+        const next = on
+          ? subs.filter((x) => !(x.scene === sType && x.openid === sOpenid))
+          : [...subs, { scene: sType, openid: sOpenid }];
+        await ns.global.set('subs', JSON.stringify(next));
+        await ctx.reply(on
+          ? '✓ 已关闭本' + (sType === 'group' ? '群' : '会话') + '的小游戏订阅。'
+          : '✓ 已开启本' + (sType === 'group' ? '群' : '会话') + '的小游戏订阅（新增/修改/删除时收到通知）。');
       },
     },
   ],
