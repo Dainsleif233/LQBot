@@ -1,7 +1,11 @@
 // /question —— Minecraft 知识问答：抽题 → 普通消息出题 → 引用机器人消息作答 → 答对计分。
 // 主命令等级 0，群聊与私聊。题库来自 SWUSTMC API（X-API-Key = env SWUSTMC_APIKEY）。
-// 会话与计分存 KV（question 命名空间）：global 存会话与 ref_idx 映射，user 存答对数。
-// 答对后立刻清掉会话与全部 ref 映射（只留计分），避免这些条目随每道题一直堆在 KV 里。
+// 会话与计分存 KV（question 命名空间）：global 存会话（key s:<会话id>），user 存答对数。
+// 答对后立刻删掉会话条目（只留计分），避免这些条目随每道题一直堆在 KV 里。
+//
+// 引用定位只认「题号」= 会话 id：写在每条会话消息末尾的提示行里（sessionTag），
+// 用户引用时随被引用正文一起回来，直接反查 s:<id>；不依赖发送响应的 ref_idx
+// （实测平台对同一条机器人消息可能给出两个不同的索引值），并要求被引用内容是机器人所发。
 import { LEVELS } from '../lib/permissions.js';
 import { defineCommand } from '../lib/define.js';
 import type { CommandContext, Config, Scene } from '../lib/types.js';
@@ -33,8 +37,6 @@ interface QuestionSession {
   userOpenid: string | null;
   groupOpenid: string | null;
   attempts: number;
-  /** 本会话已登记的机器人消息 REFIDX（任意一条都可被引用作答） */
-  refs: string[];
 }
 
 // ---------- 答案规范化 ----------
@@ -107,8 +109,15 @@ function normalizeCorrect(q: ApiQuestion): string[] {
 
 // ---------- 出题文案（普通文本消息） ----------
 const LETTERS = 'ABCDEFGH';
-function formatQuestion(session: { typeLabel: string; content: string; options: string[]; type: string }): string {
-  const lines = ['【' + session.typeLabel + '】' + session.content];
+/**
+ * 题号行：题号 = 会话 id（本身即 KV key），放在消息**第一行**——用户引用时它随被引用正文回来，
+ * 且首行最不容易被客户端的引用预览截断（定位只认它，不依赖平台的引用索引）。
+ */
+function sessionTag(id: string): string {
+  return '题号 ' + id;
+}
+function formatQuestion(session: { id: string; typeLabel: string; content: string; options: string[]; type: string }): string {
+  const lines = [sessionTag(session.id), '【' + session.typeLabel + '】' + session.content];
   session.options.forEach((opt, i) => {
     lines.push(LETTERS[i] + '. ' + opt);
   });
@@ -136,27 +145,20 @@ async function loadSession(cfg: Config, id: string): Promise<QuestionSession | n
   return cfg.storage.ns(NS).global.getJSON<QuestionSession>('s:' + id);
 }
 
-async function bindRef(cfg: Config, refIdx: string | null, session: QuestionSession): Promise<void> {
-  if (!refIdx) return;
-  if (session.refs.includes(refIdx)) return;
-  session.refs.push(refIdx);
-  const ns = cfg.storage.ns(NS);
-  await ns.global.set('ref:' + refIdx, session.id);
-  await saveSession(cfg, session);
+/** 会话 id 形态（newSessionId：Q-<base36 时间戳>-<base36 随机>） */
+const SESSION_ID_RE = /Q-[0-9a-z]{4,}-[0-9a-z]{3,8}/g;
+/** 从被引用正文里取题号（= 会话 id）。作者校验由调用方负责（只认机器人发的消息） */
+function idsFromQuoted(raw: string): string[] {
+  const found = String(raw || '').match(SESSION_ID_RE) || [];
+  const out: string[] = [];
+  for (const id of found) if (out.indexOf(id) === -1) out.push(id);
+  return out;
 }
 
-async function sessionByRef(cfg: Config, refIdx: string): Promise<QuestionSession | null> {
-  const ns = cfg.storage.ns(NS);
-  const sid = await ns.global.get('ref:' + refIdx);
-  if (!sid) return null;
-  return loadSession(cfg, sid);
-}
-
-/** 答对后清理：会话条目 + 全部 ref 映射（ref 随每条机器人消息累积，一条也要清） */
+/** 答对后清理：删掉会话条目（题号随之失效） */
 async function clearSession(cfg: Config, session: QuestionSession): Promise<void> {
   const ns = cfg.storage.ns(NS);
   try {
-    for (const ref of session.refs) await ns.global.del('ref:' + ref);
     await ns.global.del('s:' + session.id);
   } catch (e) {
     console.error('[question] 清理会话失败 session=' + session.id + '：' + (e instanceof Error ? e.message : e));
@@ -209,7 +211,6 @@ function toSession(q: ApiQuestion, ctx: CommandContext): QuestionSession {
     userOpenid: ctx.userOpenid,
     groupOpenid: ctx.groupOpenid,
     attempts: 0,
-    refs: [],
   };
 }
 
@@ -242,38 +243,50 @@ export default defineCommand({
       return;
     }
     await saveSession(ctx.cfg, session);
-    const sent = await ctx.reply(formatQuestion(session));
-    await bindRef(ctx.cfg, sent.refIdx, session);
-    if (!sent.refIdx) {
-      console.error('[question] 发送响应缺少 ext_info.ref_idx，引用作答可能不可用 session=' + session.id);
-    }
+    await ctx.reply(formatQuestion(session));
   },
 
   async onQuote(ctx: CommandContext): Promise<boolean | void> {
     const ns = ctx.cfg.storage.ns(NS);
     if (!ns.available) return false;
-    const ref = ctx.quote?.refMsgIdx;
-    if (!ref) return false;
-    const session = await sessionByRef(ctx.cfg, ref);
-    if (!session) return false;
+    const quote = ctx.quote;
+    // 定位只认题号：会话 id 写在每条会话消息的末尾提示行里，用户引用时随被引用正文一起回来。
+    // （平台给的 ref_msg_idx 实测对同一条消息可能给出两个值，已不作为定位依据）
+    const texts = quote?.elementTexts ?? [];
+    if (!texts.length) return false;
+    // 作者校验：botAuthored === false 说明被引用内容来自用户（题号被抄进自己的消息再引用）→ 不认
+    const authorOk = quote?.botAuthored !== false;
+    // 候选数量封顶：引用合并转发卡片时元素可能很多，避免最坏情况下把 KV 读次数放大
+    const MAX_TRY = 8;
+    let hitRef: { sid: string; session: QuestionSession } | null = null;
+    if (authorOk) {
+      outer: for (const t of texts.slice(0, MAX_TRY)) {
+        for (const id of idsFromQuoted(t)) {
+          const s = await loadSession(ctx.cfg, id);
+          if (!s) continue;
+          hitRef = { sid: id, session: s };
+          break outer;
+        }
+      }
+    }
+    if (!hitRef) return false;
+    const session = hitRef.session;
     // 场景隔离：群题只在同群可答；私聊题只在同一用户
     if (session.scene !== ctx.scene) return false;
     if (ctx.scene === 'group' && session.groupOpenid && session.groupOpenid !== ctx.groupOpenid) return false;
     if (ctx.scene === 'private' && session.userOpenid && session.userOpenid !== ctx.userOpenid) return false;
 
     const answer = (ctx.quote?.text || '').trim();
-    if (!answer) {
-      await ctx.reply('请在引用里写上答案再发送（如 B / AD / 对）。');
-      return true;
-    }
+    // 只引用不写字：不回复任何内容，也不消费这次引用（返回 false 让后续 onQuote 插件有机会接）
+    if (!answer) return false;
     session.attempts += 1;
-    if (!isCorrectAnswer(session, answer)) {
+    const correct = isCorrectAnswer(session, answer);
+    if (!correct) {
       await saveSession(ctx.cfg, session);
-      const sent = await ctx.reply('不对哦，再试试～（引用本题任意机器人消息作答）');
-      await bindRef(ctx.cfg, sent.refIdx, session);
+      await ctx.reply(sessionTag(session.id) + '\n不对哦，再试试～（引用本条消息或题面继续作答）');
       return true;
     }
-    // 先清理会话与 ref 映射再计分/回复：同一题不会因为回复重投而被重复计分，答对后也无法再答
+    // 先清理会话再计分/回复：同一题不会因为回复重投而被重复计分，答对后也无法再答（题号随之失效）
     await clearSession(ctx.cfg, session);
     const uid = ctx.userOpenid || ctx.memberOpenid || '';
     let n = 0;

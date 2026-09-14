@@ -198,6 +198,8 @@ interface QuoteReqOpts {
   refMsgIdx?: string | null;
   messageType?: number | null;
   elements?: unknown[];
+  /** 并行消息包装（parallel_message.msg_nodes），用于覆盖「真索引在节点里」的实测形态 */
+  parallel?: unknown;
   scene?: 'private' | 'group';
 }
 function makeQuoteRequest(opts: QuoteReqOpts): Request {
@@ -216,6 +218,7 @@ function makeQuoteRequest(opts: QuoteReqOpts): Request {
   ext.push('msg_idx=REFIDX_SELF');
   d.message_scene = { source: 'default', ext };
   if (opts.elements) d.msg_elements = opts.elements;
+  if (opts.parallel) d.parallel_message = opts.parallel;
   const payload = { op: 0, t: isGroup ? 'GROUP_AT_MESSAGE_CREATE' : 'C2C_MESSAGE_CREATE', d };
   return new Request('http://localhost/webhook', {
     method: 'POST',
@@ -422,7 +425,8 @@ async function main(): Promise<void> {
     expect('/question 缺 API Key 提示', out.includes('未配置题库 API Key'), out);
   }
 
-  // 抽题 + 普通消息出题格式
+  // 抽题 + 普通消息出题格式（题面文本留作后续引用作答用）
+  let singleMsg = '';
   {
     enableMockKv();
     mockDrawQuestion = {
@@ -437,40 +441,35 @@ async function main(): Promise<void> {
       && out.includes('A. 4') && out.includes('B. 8')
       && out.includes('引用本消息回复选项字母'),
       out);
-    // 记下本题机器人消息的 ref_idx（发送序列）
+    singleMsg = out;
     const msgs = calls.filter((c) => c.url.includes('/messages'));
     expect('/question 发出 1 条出题消息', msgs.length === 1, msgs.length);
   }
 
-  // 答错 -> 再答对（引用同一题消息）-> 计分第 1 题
+  // 答错 -> 再答对（引用同一条题面）-> 计分第 1 题
   {
-    const before = outSeq;
-    // 出题已产生 before 的发送；用 before 的 REFIDX（即上次 /question 的 ref）
-    const qRef = 'REFIDX_OUT' + before;
-    const wrong = await runQuote({
-      content: 'A',
-      messageType: 103,
-      refMsgIdx: qRef,
-    }, qEnv);
+    // 只带被引用正文（题号在里面）+ 一个完全对不上的 msg_idx：定位不依赖任何索引
+    const quoteMsg = (content: string, msg: string) => ({
+      content, messageType: 103,
+      elements: [{ msg_idx: 'REFIDX_IGNORED', message_type: 103, content: msg }],
+    });
+    const wrong = await runQuote(quoteMsg('A', singleMsg), qEnv);
     expect('/question 答错提示', wrong.includes('不对哦'), wrong);
-    const right = await runQuote({
-      content: 'B',
-      messageType: 103,
-      refMsgIdx: qRef,
-    }, qEnv);
+    const right = await runQuote(quoteMsg('B', singleMsg), qEnv);
     expect('/question 答对计分', right.includes('答对了，这是你答对的第1道题') && right.includes('解析'), right);
   }
 
-  // 答对即清理：会话与 ref 映射全删、只留计分；之后 question 不再消费该引用
+  // 答对即清理：会话删除、只留计分；之后 question 不再消费该引用
   {
-    // 出题 1 条 + 答错/答对各 1 条回复 → outSeq-2 就是出题消息的 REFIDX
-    const qRef = 'REFIDX_OUT' + (outSeq - 2);
     const leftovers = [...kvMap.keys()].filter((k) => k.startsWith('question:global:'));
-    expect('/question 答对后清空会话与 ref', leftovers.length === 0, leftovers);
+    expect('/question 答对后清空会话', leftovers.length === 0, leftovers);
     expect('/question 答对后计分保留',
       kvMap.get('question:user:u_test:correct') === '1', kvMap.get('question:user:u_test:correct'));
 
-    const again = await runQuote({ content: 'B', messageType: 103, refMsgIdx: qRef }, qEnv);
+    const again = await runQuote({
+      content: 'B', messageType: 103,
+      elements: [{ msg_idx: 'REFIDX_IGNORED', message_type: 103, content: singleMsg }],
+    }, qEnv);
     // 会话已清理 → question 不再消费该引用，落到 qtest 桩的兜底回显（无会话相关回复）
     expect('/question 答对后再引用不被 question 消费',
       again.startsWith('QTEST_ANSWER') && !again.includes('答对') && !again.includes('不对哦'), again);
@@ -484,9 +483,11 @@ async function main(): Promise<void> {
       content: '1.17 开启了洞穴与山崖更新', options: [], answer: 'TRUE', answers: [],
       analysis: '对。',
     };
-    await runQ('/question', qEnv);
-    const qRef = 'REFIDX_OUT' + outSeq;
-    const out = await runQuote({ content: '对', messageType: 103, refMsgIdx: qRef }, qEnv);
+    const qMsg = await runQ('/question', qEnv);
+    const out = await runQuote({
+      content: '对', messageType: 103,
+      elements: [{ msg_idx: 'REFIDX_IGNORED', message_type: 103, content: qMsg }],
+    }, qEnv);
     expect('/question 判断题答对', out.includes('答对了'), out);
   }
 
@@ -498,12 +499,136 @@ async function main(): Promise<void> {
       content: '会饮用药水的有：', options: ['流浪商人', '村民', '唤魔者', '女巫'],
       answer: null, answers: ['A', 'D'], analysis: null,
     };
-    await runQ('/question', qEnv);
-    const qRef = 'REFIDX_OUT' + outSeq;
-    const wrong = await runQuote({ content: 'A', messageType: 103, refMsgIdx: qRef }, qEnv);
+    const qMsg = await runQ('/question', qEnv);
+    const quoteMulti = (content: string) => ({
+      content, messageType: 103,
+      elements: [{ msg_idx: 'REFIDX_IGNORED', message_type: 103, content: qMsg }],
+    });
+    const wrong = await runQuote(quoteMulti('A'), qEnv);
     expect('/question 多选少选不对', wrong.includes('不对哦'), wrong);
-    const right = await runQuote({ content: 'DA', messageType: 103, refMsgIdx: qRef }, qEnv);
+    const right = await runQuote(quoteMulti('DA'), qEnv);
     expect('/question 多选 DA 答对', right.includes('答对了'), right);
+  }
+
+  // 引用定位只认题号（会话 id）：题号写在我们发出的消息文本里，随被引用正文回来；
+  // 平台给的 ref_msg_idx 实测对同一条消息可能有两个值，已不作为依据
+  const multiBank = {
+    id: 'api-4', type: 'MULTIPLE', typeLabel: '多选题',
+    content: '以下哪些方式可以扑灭营火？', options: ['用木头铲子扑灭', '投掷水瓶', '投掷雪球', '投掷风弹'],
+    answer: null, answers: ['B', 'D'], analysis: null,
+  };
+
+  // ① 题号写在嵌套 msg_elements（元素套元素）里也能取到
+  {
+    enableMockKv();
+    mockDrawQuestion = multiBank;
+    const qMsg = await runQ('/question', qEnv);
+    const out = await runQuote({
+      content: 'BD', messageType: 103, refMsgIdx: 'REFIDX_WRAPPER1',
+      elements: [
+        { msg_idx: 'REFIDX_WRAPPER1', message_type: 103, content: '' },
+        {
+          msg_idx: 'REFIDX_X', message_type: 101, content: '',
+          msg_elements: [{ msg_idx: 'REFIDX_Y', message_type: 0, content: qMsg }],
+        },
+      ],
+    }, qEnv);
+    expect('/question 嵌套元素里的题号可作答', out.includes('答对了'), out);
+  }
+
+  // ② 题号在并行消息节点（parallel_message.msg_nodes）里也能取到
+  {
+    enableMockKv();
+    mockDrawQuestion = multiBank;
+    const qMsg = await runQ('/question', qEnv);
+    const out = await runQuote({
+      content: 'BD', messageType: 103, refMsgIdx: 'REFIDX_WRAPPER2',
+      elements: [{ msg_idx: 'REFIDX_WRAPPER2', message_type: 103, content: '@tester\n' + qMsg }],
+      parallel: { msg_nodes: [{ msg_idx: 'REFIDX_X', message_type: 0, content: '@tester\n' + qMsg }] },
+    }, qEnv);
+    expect('/question 并行消息节点里的题号可作答', out.includes('答对了'), out);
+  }
+
+  // ④ 索引对不上且引用的是别的题：不能误判（交给后续 onQuote 兜底回显）
+  {
+    enableMockKv();
+    mockDrawQuestion = multiBank;
+    await runQ('/question', qEnv);
+    const out = await runQuote({
+      content: 'BD', messageType: 103, refMsgIdx: 'REFIDX_UNKNOWN2',
+      elements: [{ msg_idx: 'REFIDX_UNKNOWN2', message_type: 103, content: '【多选题】另一道不相干的题\nA. 甲\nB. 乙' }],
+    }, qEnv);
+    expect('/question 题面不符时不误判', !out.includes('答对了') && !out.includes('不对哦'), out);
+  }
+
+  // ⑤ 答错后引用「不对哦」那条回复继续作答：回复里带题号，索引对不上也能定位回本题
+  {
+    enableMockKv();
+    mockDrawQuestion = multiBank;
+    const qMsg = await runQ('/question', qEnv);
+    const wrong = await runQuote({
+      content: 'A', messageType: 103, refMsgIdx: 'REFIDX_WRONG',
+      elements: [{ msg_idx: 'REFIDX_WRONG', message_type: 103, content: qMsg }],
+    }, qEnv);
+    expect('/question 答错提示带题号', wrong.includes('不对哦') && wrong.includes('题号 Q-'), wrong);
+    // 引用这条「不对哦」回复（索引同样对不上），只能靠它正文里的题号定位
+    const again = await runQuote({
+      content: 'BD', messageType: 103, refMsgIdx: 'REFIDX_NOPE3',
+      elements: [{ msg_idx: 'REFIDX_NOPE3', message_type: 103, content: wrong }],
+    }, qEnv);
+    expect('/question 引用答错提示可继续作答', again.includes('答对了'), again);
+  }
+
+  // ⑥ 题号定位：题号（会话 id）随消息发出，引用时直接取回反查（这里故意只给「带题号的提示行」，
+  //    题面文本不在引文里 → 指纹层无从命中，只有题号路径能救）
+  {
+    enableMockKv();
+    mockDrawQuestion = multiBank;
+    const qMsg = await runQ('/question', qEnv);
+    const code = (qMsg.match(/Q-[0-9a-z]+-[0-9a-z]+/) || [])[0] || '';
+    expect('/question 题面里带题号', !!code, qMsg);
+    expect('/question 题号在首行', !!code && qMsg.split('\n')[0].includes(code), qMsg.split('\n')[0]);
+    const out = await runQuote({
+      content: 'BD', messageType: 103, refMsgIdx: 'REFIDX_NOPE4',
+      elements: [{
+        msg_idx: 'REFIDX_NOPE4', message_type: 103,
+        content: '（多选，如 AD；引用本消息回复，可多次作答；题号 ' + code + '）',
+      }],
+    }, qEnv);
+    expect('/question 凭题号作答（不依赖索引/指纹）', out.includes('答对了'), { code, out });
+  }
+
+  // ⑦ 作者校验：题号被用户抄进自己的消息再引用 → 不算数（元素 author.bot=false）
+  {
+    enableMockKv();
+    mockDrawQuestion = multiBank;
+    const qMsg = await runQ('/question', qEnv);
+    const code = (qMsg.match(/Q-[0-9a-z]+-[0-9a-z]+/) || [])[0] || '';
+    const out = await runQuote({
+      content: 'BD', messageType: 103, refMsgIdx: 'REFIDX_NOPE5',
+      elements: [{
+        msg_idx: 'REFIDX_NOPE5', message_type: 103,
+        author: { user_openid: 'u_test', bot: false },
+        content: '题号 ' + code,
+      }],
+    }, qEnv);
+    expect('/question 用户抄题号不算数（作者校验）', !out.includes('答对了') && !out.includes('不对哦'), out);
+  }
+
+  // ⑧ 只引用不写字：不回任何内容，也不消费事件（后续 onQuote 插件仍能接到），且不计入 attempts
+  {
+    enableMockKv();
+    mockDrawQuestion = multiBank;
+    const qMsg = await runQ('/question', qEnv);
+    const code = (qMsg.match(/Q-[0-9a-z]+-[0-9a-z]+/) || [])[0] || '';
+    const out = await runQuote({
+      content: '', messageType: 103, refMsgIdx: 'REFIDX_EMPTY',
+      elements: [{ msg_idx: 'REFIDX_EMPTY', message_type: 103, content: qMsg }],
+    }, qEnv);
+    expect('/question 空正文不回复且不消费（落到后续插件）',
+      out.includes('QTEST_ANSWER') && !out.includes('请在引用里'), out);
+    const sess = JSON.parse(kvMap.get('question:global:s:' + code) || '{}');
+    expect('/question 空正文不计 attempts', sess.attempts === 0, sess.attempts);
   }
 
   disableMockKv();
