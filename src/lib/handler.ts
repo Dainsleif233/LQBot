@@ -29,6 +29,30 @@ function parseAttachments(d: any): MessageAttachment[] {
     }));
 }
 
+/**
+ * 递归遍历消息元素树（MsgElement：含 content、嵌套 msg_elements、author）与并行消息节点
+ * （parallel_message.msg_nodes），把「被引用正文」与「元素作者」完整暴露给业务侧。
+ */
+function walkElements(node: unknown, texts: string[], authors: unknown[], depth = 0): void {
+  if (!node || depth > 6) return;
+  if (Array.isArray(node)) {
+    for (const it of node) walkElements(it, texts, authors, depth + 1);
+    return;
+  }
+  if (typeof node !== 'object') return;
+  const el = node as any;
+  if (typeof el.content === 'string' && el.content) texts.push(el.content);
+  if (el.author && typeof el.author === 'object') authors.push(el.author);
+  if (el.msg_elements) walkElements(el.msg_elements, texts, authors, depth + 1);
+  if (el.msg_nodes) walkElements(el.msg_nodes, texts, authors, depth + 1);
+}
+
+function uniq(list: string[]): string[] {
+  const out: string[] = [];
+  for (const s of list) if (s && out.indexOf(s) === -1) out.push(s);
+  return out;
+}
+
 /** 解析引用回复：message_type=103 或 message_scene.ext 含 ref_msg_idx */
 function parseQuote(d: any): QuoteInfo | null {
   const messageType = typeof d?.message_type === 'number' ? (d.message_type as number) : null;
@@ -47,7 +71,19 @@ function parseQuote(d: any): QuoteInfo | null {
     const el = elements[0] as any;
     if (el && typeof el.content === 'string') quotedText = el.content;
   }
-  return { isQuote, refMsgIdx, text, quotedText, messageType, ext, elements };
+  // 被引用正文与元素作者：正文可能藏在嵌套 msg_elements / 并行消息节点里，递归收集
+  const textRaw: string[] = [];
+  const authors: unknown[] = [];
+  walkElements(d?.msg_elements, textRaw, authors);
+  walkElements(d?.parallel_message, textRaw, authors);
+  const elementTexts = uniq(textRaw.filter((t) => String(t).trim() !== ''));
+  if (!quotedText && elementTexts.length) quotedText = elementTexts[0];
+  // 作者判定：元素带 author 时看 author.bot；带 author 的元素里没有一个是机器人 → 判为用户消息
+  const botFlags = authors
+    .map((a: any) => (a && typeof a.bot === 'boolean' ? a.bot : null))
+    .filter((x): x is boolean => x !== null);
+  const botAuthored: boolean | null = botFlags.length ? botFlags.some((f) => f) : null;
+  return { isQuote, refMsgIdx, text, quotedText, messageType, ext, elements, elementTexts, botAuthored };
 }
 
 /** 非 slash 命令的引用回复：按注册表顺序分发 onQuote，返回 true 的命令吃掉事件 */
@@ -67,7 +103,8 @@ async function dispatchQuote(
   },
 ): Promise<void> {
   const { userOpenid, memberOpenid, groupOpenid, nick, memberInfo, messageId, d, quote } = opts;
-  if (!quote.refMsgIdx || !messageId) return;
+  // 放行条件：有 ref_msg_idx 或带被引用正文（业务侧可从正文里取题号定位），且必须有 msg_id 才能被动回复
+  if ((!quote.refMsgIdx && !quote.elementTexts.length) || !messageId) return;
   const attachments = parseAttachments(d);
   const level = await resolveLevel(cfg, { scene, userOpenid, groupOpenid, memberOpenid, memberInfo });
   const { reply, replyMarkdown, replyMedia } = createReply(cfg, event, scene);
@@ -95,7 +132,7 @@ async function dispatchQuote(
     replyMarkdown,
     replyMedia,
     async deny() {
-      return reply('权限不足：当前等级 ' + level);
+      await reply('权限不足：当前等级 ' + level);
     },
   };
   for (const cmd of commands) {
@@ -224,7 +261,7 @@ async function processEvent(cfg: Config, payload: any): Promise<void> {
   const parsed = parseCommand(d.content);
   // 非 slash 命令但带引用：交给声明了 onQuote 的命令处理
   if (!parsed) {
-    if (quote && quote.refMsgIdx) {
+    if (quote && (quote.refMsgIdx || quote.elementTexts.length)) {
       await dispatchQuote(cfg, event, scene, {
         userOpenid, memberOpenid, groupOpenid, nick, memberInfo, messageId, d, quote,
       });
@@ -283,7 +320,7 @@ async function processEvent(cfg: Config, payload: any): Promise<void> {
     replyMedia,
     // 便捷：需要更高等级时的拒绝回复
     async deny() {
-      return reply('权限不足：' + target + ' 需要等级 ' + minLevel + '（' + levelName(minLevel) + '），当前等级 ' + level);
+      await reply('权限不足：' + target + ' 需要等级 ' + minLevel + '（' + levelName(minLevel) + '），当前等级 ' + level);
     },
   };
   // 权限检查（挡位进阶：level >= minLevel 即通过）
