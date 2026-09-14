@@ -132,7 +132,7 @@ async function dispatchQuote(
     replyMarkdown,
     replyMedia,
     async deny() {
-      return reply('权限不足：当前等级 ' + level);
+      await reply('权限不足：当前等级 ' + level);
     },
   };
   for (const cmd of commands) {
@@ -320,7 +320,7 @@ async function processEvent(cfg: Config, payload: any): Promise<void> {
     replyMedia,
     // 便捷：需要更高等级时的拒绝回复
     async deny() {
-      return reply('权限不足：' + target + ' 需要等级 ' + minLevel + '（' + levelName(minLevel) + '），当前等级 ' + level);
+      await reply('权限不足：' + target + ' 需要等级 ' + minLevel + '（' + levelName(minLevel) + '），当前等级 ' + level);
     },
   };
   // 权限检查（挡位进阶：level >= minLevel 即通过）
