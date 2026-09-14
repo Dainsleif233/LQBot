@@ -109,6 +109,13 @@ export interface QuoteInfo {
   ext: string[];
   /** 原始 msg_elements */
   elements: unknown[];
+  /** 事件里全部被引用正文候选（元素树的 content，递归收集，按出现顺序去重） */
+  elementTexts: string[];
+  /**
+   * 被引用内容的作者是否为机器人（取元素树里的 MsgElement.author.bot）：
+   * true=确认机器人所发；false=确认是用户消息；null=事件未带 author，无从判断（QQ 常省略该字段）。
+   */
+  botAuthored: boolean | null;
 }
 
 export interface CommandContext {
