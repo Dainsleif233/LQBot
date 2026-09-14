@@ -53,6 +53,42 @@ export default defineCommand({
 权限：挡位 3>2>1>0，`ctx.level >= minLevel` 才执行，否则框架自动 `deny()`（拒绝会指明路径与所需等级）。
 等级解析：env 超管 → KV 覆盖 `perm:user:<openid>:level` → 场景默认。
 
+### 引用回复（onQuote）
+
+用户**引用**消息时（`message_type=103` 或 ext 含 `ref_msg_idx`，或事件带被引用正文），框架会把该事件按
+`registry.ts` 的注册顺序交给声明了 `onQuote` 的命令；返回 `true` = 已处理并吃掉事件，`false`/`undefined` = 交给后续命令。
+
+```typescript
+export default defineCommand({
+  name: 'qtest', description: '引用测试', minLevel: LEVELS.USER,
+  async handler(ctx) { await ctx.reply('引用这条消息回复即可'); },
+  async onQuote(ctx) {
+    const texts = ctx.quote?.elementTexts ?? [];
+    if (!texts.length || ctx.quote?.botAuthored === false) return false;   // 无正文 / 引用的是用户消息
+    await ctx.reply('你引用了：' + texts[0].slice(0, 20));
+    return true;
+  },
+});
+```
+
+`ctx.quote` 字段：
+
+| 字段 | 说明 |
+| --- | --- |
+| `refMsgIdx` | 平台给的引用索引。**不可靠**：同一条机器人消息在引用事件里可能给出与发送响应 `ext_info.ref_idx` 不同的值（见 AGENTS.md 已知坑位），不要当唯一凭据 |
+| `text` | 用户本次正文（已剥 `@机器人` 前缀）；只引用不写字时为空串 |
+| `quotedText` | 第一条被引用正文（`msg_elements[0].content` 的兼容取值） |
+| `elementTexts` | **全部**被引用正文：递归覆盖 `msg_elements`（含嵌套）与 `parallel_message.msg_nodes` |
+| `botAuthored` | 被引用内容是否机器人所发（`MsgElement.author.bot`）：`true` / `false` / `null`（事件未带 author，QQ 常省略） |
+| `messageType` / `ext` / `elements` | 原始事件信息（排查用） |
+
+约定（避免引用定位失效）：
+
+- 需要「引用作答 / 引用交互」时，**把自证标识（会话 id、题号等）写进自己发出的消息文本**，引用时从 `elementTexts` 取回并反查自己的存储；不要依赖 `refMsgIdx`——平台可能对同一条消息给出第二个索引。
+- 用 `botAuthored === false` 拒绝「用户把标识抄进自己的消息再引用」，再配合场景/用户隔离。
+- 取不到标识、或用户只引用不写正文时，建议**不回复也不消费**（`return false`）：省被动回复额度，也让后续插件有机会接。
+- 完整范例见 `src/commands/question.ts`（题号写在消息首行 → 引用时取回 → 反查 KV 会话 → 判分）。
+
 ## 3. 子命令（支持多级）
 
 ```typescript
