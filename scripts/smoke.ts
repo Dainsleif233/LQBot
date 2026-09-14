@@ -429,17 +429,19 @@ async function main(): Promise<void> {
     expect('/question 答对计分', right.includes('答对了，这是你答对的第1道题') && right.includes('解析'), right);
   }
 
-  // 引用「答错提示」那条消息也可作答；已答对再答提示已过
+  // 答对即清理：会话与 ref 映射全删、只留计分；之后 question 不再消费该引用
   {
-    const done = await runQuote({
-      content: 'B',
-      messageType: 103,
-      refMsgIdx: 'REFIDX_OUT' + (outSeq - 2),
-    }, qEnv);
-    // REFIDX_OUT*(outSeq-2) 可能是答错提示或答对消息；至少应是 question 会话相关回复之一
-    expect('/question 已答对/会话内消息有响应',
-      done.includes('已经答对') || done.includes('不对哦') || done.includes('答对了'),
-      done);
+    // 出题 1 条 + 答错/答对各 1 条回复 → outSeq-2 就是出题消息的 REFIDX
+    const qRef = 'REFIDX_OUT' + (outSeq - 2);
+    const leftovers = [...kvMap.keys()].filter((k) => k.startsWith('question:global:'));
+    expect('/question 答对后清空会话与 ref', leftovers.length === 0, leftovers);
+    expect('/question 答对后计分保留',
+      kvMap.get('question:user:u_test:correct') === '1', kvMap.get('question:user:u_test:correct'));
+
+    const again = await runQuote({ content: 'B', messageType: 103, refMsgIdx: qRef }, qEnv);
+    // 会话已清理 → question 不再消费该引用，落到 qtest 桩的兜底回显（无会话相关回复）
+    expect('/question 答对后再引用不被 question 消费',
+      again.startsWith('QTEST_ANSWER') && !again.includes('答对') && !again.includes('不对哦'), again);
   }
 
   // 判断题

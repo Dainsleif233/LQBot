@@ -1,6 +1,7 @@
 // /question —— Minecraft 知识问答：抽题 → 普通消息出题 → 引用机器人消息作答 → 答对计分。
 // 主命令等级 0，群聊与私聊。题库来自 SWUSTMC API（X-API-Key = env SWUSTMC_APIKEY）。
 // 会话与计分存 KV（question 命名空间）：global 存会话与 ref_idx 映射，user 存答对数。
+// 答对后立刻清掉会话与全部 ref 映射（只留计分），避免这些条目随每道题一直堆在 KV 里。
 import { LEVELS } from '../lib/permissions.js';
 import { defineCommand } from '../lib/define.js';
 import type { CommandContext, Config, Scene } from '../lib/types.js';
@@ -31,7 +32,6 @@ interface QuestionSession {
   scene: Scene;
   userOpenid: string | null;
   groupOpenid: string | null;
-  done: boolean;
   attempts: number;
   /** 本会话已登记的机器人消息 REFIDX（任意一条都可被引用作答） */
   refs: string[];
@@ -152,6 +152,17 @@ async function sessionByRef(cfg: Config, refIdx: string): Promise<QuestionSessio
   return loadSession(cfg, sid);
 }
 
+/** 答对后清理：会话条目 + 全部 ref 映射（ref 随每条机器人消息累积，一条也要清） */
+async function clearSession(cfg: Config, session: QuestionSession): Promise<void> {
+  const ns = cfg.storage.ns(NS);
+  try {
+    for (const ref of session.refs) await ns.global.del('ref:' + ref);
+    await ns.global.del('s:' + session.id);
+  } catch (e) {
+    console.error('[question] 清理会话失败 session=' + session.id + '：' + (e instanceof Error ? e.message : e));
+  }
+}
+
 async function bumpCorrectCount(cfg: Config, userOpenid: string): Promise<number> {
   const store = cfg.storage.ns(NS).user(userOpenid);
   if (!store) return 0;
@@ -197,7 +208,6 @@ function toSession(q: ApiQuestion, ctx: CommandContext): QuestionSession {
     scene: ctx.scene,
     userOpenid: ctx.userOpenid,
     groupOpenid: ctx.groupOpenid,
-    done: false,
     attempts: 0,
     refs: [],
   };
@@ -256,10 +266,6 @@ export default defineCommand({
       await ctx.reply('请在引用里写上答案再发送（如 B / AD / 对）。');
       return true;
     }
-    if (session.done) {
-      await ctx.reply('这道题已经答对啦，发送 /question 再来一题。');
-      return true;
-    }
     session.attempts += 1;
     if (!isCorrectAnswer(session, answer)) {
       await saveSession(ctx.cfg, session);
@@ -267,8 +273,8 @@ export default defineCommand({
       await bindRef(ctx.cfg, sent.refIdx, session);
       return true;
     }
-    session.done = true;
-    await saveSession(ctx.cfg, session);
+    // 先清理会话与 ref 映射再计分/回复：同一题不会因为回复重投而被重复计分，答对后也无法再答
+    await clearSession(ctx.cfg, session);
     const uid = ctx.userOpenid || ctx.memberOpenid || '';
     let n = 0;
     if (uid) n = await bumpCorrectCount(ctx.cfg, uid);
