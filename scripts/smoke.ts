@@ -402,7 +402,7 @@ async function main(): Promise<void> {
     qMsgSeq += 1;
     calls.length = 0;
     await handleWebhook({
-      request: new Request('http://localhost/webhook', {
+      request: new Request('http://localhost/qbot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -658,7 +658,7 @@ async function main(): Promise<void> {
     gMsgSeq += 1;
     calls.length = 0;
     await handleWebhook({
-      request: new Request('http://localhost/webhook', {
+      request: new Request('http://localhost/qbot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -680,7 +680,7 @@ async function main(): Promise<void> {
   async function runGroup(content: string, groupOpenid: string, msgId: string): Promise<string[]> {
     calls.length = 0;
     await handleWebhook({
-      request: new Request('http://localhost/webhook', {
+      request: new Request('http://localhost/qbot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -865,7 +865,7 @@ async function main(): Promise<void> {
     enableMockKv();
     gMsgSeq += 1;
     await handleWebhook({
-      request: new Request('http://localhost/webhook', {
+      request: new Request('http://localhost/qbot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -930,7 +930,7 @@ async function main(): Promise<void> {
     calls.length = 0;
     svgBodies.length = 0;
     await handleWebhook({
-      request: new Request('http://localhost/webhook', {
+      request: new Request('http://localhost/qbot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -948,7 +948,7 @@ async function main(): Promise<void> {
     calls.length = 0;
     svgBodies.length = 0;
     await handleWebhook({
-      request: new Request('http://localhost/webhook', {
+      request: new Request('http://localhost/qbot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
