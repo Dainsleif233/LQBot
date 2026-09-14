@@ -860,6 +860,17 @@ async function main(): Promise<void> {
     expectG('/games subscribe 关闭', off, '✓ 已关闭本会话的小游戏订阅');
   }
 
+  // subscribe 的别名 sub（含与主命令别名 game 的组合）
+  {
+    const on = await runG('/games sub');
+    expectG('/games sub 别名开启', on, '✓ 已开启本会话的小游戏订阅');
+    const off = await runG('/game sub');
+    expectG('/game sub 双别名关闭', off, '✓ 已关闭本会话的小游戏订阅');
+    const kv = JSON.parse(kvMap.get('games:global:subs') || '[]');
+    expect('/games sub 别名不残留订阅',
+      !kv.some((s: any) => s.scene === 'private' && s.openid === 'u_test'), kv);
+  }
+
   // 群订阅 + 私聊 add → 主动通知该群
   {
     enableMockKv();

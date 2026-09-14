@@ -305,6 +305,7 @@ export default defineCommand({
     {
       // /games subscribe：开关当前场景（群聊或私聊）的订阅；订阅状态 = 全局索引里有本场景
       name: 'subscribe',
+      aliases: ['sub'],
       description: '开关订阅',
       minLevel: LEVELS.GLOBAL_ADMIN, // 2
       async handler(ctx: CommandContext): Promise<void> {
