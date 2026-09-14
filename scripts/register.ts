@@ -16,7 +16,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 // 直接导入命令注册表：与运行时同一数据源，避免正则漏解析导致面板与实现不一致
-import { commands } from '../src/lib/registry.js';
+import { commands } from '../src/libs/registry.js';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 

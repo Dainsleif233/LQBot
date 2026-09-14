@@ -1,10 +1,10 @@
 // 冒烟测试：钉死命令匹配 / 多级子命令 / 权限语义 / Markdown 与富媒体收发（不连真 QQ，桩掉 fetch）。
 // 运行：npm run smoke。断言失败时退出码 1。
-import { handleWebhook } from '../src/lib/handler.js';
-import { commands } from '../src/lib/registry.js';
-import { LEVELS } from '../src/lib/permissions.js';
-import { defineCommand } from '../src/lib/define.js';
-import type { MessageAttachment } from '../src/lib/types.js';
+import { handleWebhook } from '../src/libs/handler.js';
+import { commands } from '../src/libs/registry.js';
+import { LEVELS } from '../src/libs/permissions.js';
+import { defineCommand } from '../src/libs/define.js';
+import type { MessageAttachment } from '../src/libs/types.js';
 
 interface RecordedCall { url: string; body: any; }
 const calls: RecordedCall[] = [];

@@ -1,5 +1,5 @@
 // 命令编写辅助：defineCommand 统一声明命令与多级子命令，补默认值并提供完整类型提示。
-// 唯一约定：命令模块 export default defineCommand({...})，再 import 到 src/lib/registry.ts
+// 唯一约定：命令模块 export default defineCommand({...})，再 import 到 src/libs/registry.ts
 // 的 commands 数组（register.ts 也以 registry 为唯一数据源）。详见 docs/PLUGIN-DEV.md。
 import type { Command, CommandContext, Scene, SubCommand } from './types.js';
 
