@@ -4,6 +4,7 @@ import { handleWebhook } from '../src/lib/handler.js';
 import { commands } from '../src/lib/registry.js';
 import { LEVELS } from '../src/lib/permissions.js';
 import { defineCommand } from '../src/lib/define.js';
+import { onRequestPost } from '../edge-functions/news.js';
 import type { MessageAttachment } from '../src/lib/types.js';
 
 interface RecordedCall { url: string; body: any; }
@@ -1099,6 +1100,136 @@ async function main(): Promise<void> {
     expectG('/server 私聊看不到群列表', priv, '本会话还没有添加服务器');
   }
 
+  // ---------- /news（新闻推送：命令订阅 + POST /news webhook 鉴权/推送） ----------
+  // 源侧密钥（环境变量 SWUSTMC_NEWS）与载荷形态按实测钉死
+  const newsEnv = { ...adminEnv, SWUSTMC_NEWS: 'news-secret' };
+  function newsPayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      event: 'mc.news.new',
+      title: 'Minecraft 测试版本发布',
+      url: 'https://example.com/news/1',
+      content: '## Minecraft 测试版本发布\n\n正文内容。',
+      summary: '摘要',
+      sourceName: 'Minecraft 官网新闻',
+      publishedAt: '2026-09-14T17:12:20.576Z',
+      timestamp: 1789406006464,
+      ...overrides,
+    };
+  }
+  async function postNews(body: unknown, opts: { secret?: string | null; env?: Record<string, string>; raw?: string } = {}): Promise<any> {
+    calls.length = 0;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (opts.secret !== null) headers['x-secret'] = opts.secret ?? 'news-secret';
+    const resp = await onRequestPost({
+      request: new Request('http://localhost/news', {
+        method: 'POST',
+        headers,
+        body: opts.raw === undefined ? JSON.stringify(body) : opts.raw,
+      }),
+      env: opts.env ?? newsEnv,
+    });
+    const text = await resp.text();
+    return { status: resp.status, json: text ? JSON.parse(text) : {}, sent: calls.filter((c) => c.url.includes('/messages')) };
+  }
+
+  // 未配置 SWUSTMC_NEWS：fail-closed，拒绝一切推送
+  {
+    const r = await postNews(newsPayload(), { env: { ...adminEnv } });
+    expect('/news 未配置 SWUSTMC_NEWS 时拒绝推送', r.status === 500 && r.sent.length === 0, r);
+  }
+
+  // x-secret 错误 / 缺失
+  {
+    const wrong = await postNews(newsPayload({ url: 'https://example.com/news/11' }), { secret: 'nope' });
+    expect('/news x-secret 错误返回 401 且不推送', wrong.status === 401 && wrong.sent.length === 0, wrong);
+    const missing = await postNews(newsPayload({ url: 'https://example.com/news/12' }), { secret: null });
+    expect('/news 缺少 x-secret 返回 401', missing.status === 401, missing);
+  }
+
+  // 鉴权通过但无人订阅：正常 200、零发送
+  {
+    const r = await postNews(newsPayload({ url: 'https://example.com/news/13' }));
+    expect('/news 无订阅者时零发送', r.status === 200 && r.json.sent === 0 && r.sent.length === 0, r);
+  }
+
+  // 命令：等级 0 被拒；超管可开订阅
+  {
+    const denied = await runG('/news', userEnv);
+    expectG('/news 普通用户被拒', denied, '权限不足：news 需要等级 2');
+  }
+  {
+    const on = await runG('/news');
+    expectG('/news 私聊开启订阅', on, '✓ 已开启本会话的新闻推送订阅');
+    expect('/news 订阅落 KV news:global:subs',
+      kvMap.get('news:global:subs') === JSON.stringify([{ scene: 'private', openid: 'u_test' }]),
+      kvMap.get('news:global:subs'));
+  }
+  {
+    const bodies = await runGroup('/news', 'g_news', 'ROBOT1.0_NEWSG1');
+    expectG('/news 群聊开启订阅', bodies, '✓ 已开启本群的新闻推送订阅');
+    const subs = JSON.parse(kvMap.get('news:global:subs') || '[]');
+    expect('/news 订阅索引同时含群与私聊',
+      subs.length === 2 && subs.some((s: any) => s.scene === 'group' && s.openid === 'g_news'), subs);
+  }
+
+  // 推送：群与私聊各收到一条 Markdown（主动消息，无 msg_id，msg_type=2）
+  {
+    const r = await postNews(newsPayload({ url: 'https://example.com/news/14' }));
+    const groupCall = r.sent.find((c: RecordedCall) => c.url.includes('/v2/groups/g_news/messages'));
+    const userCall = r.sent.find((c: RecordedCall) => c.url.includes('/v2/users/u_test/messages'));
+    expect('/news 推送覆盖群与私聊各一条', r.status === 200 && r.sent.length === 2 && !!groupCall && !!userCall,
+      r.sent.map((c: RecordedCall) => c.url));
+    expect('/news 推送正文取 content 字段',
+      r.sent.every((c: RecordedCall) => String(c.body?.markdown?.content ?? '') === String(newsPayload().content)),
+      r.sent.map((c: RecordedCall) => c.body?.markdown?.content));
+    expect('/news 推送走主动消息（无 msg_id）',
+      r.sent.every((c: RecordedCall) => !c.body?.msg_id && c.body?.msg_type === 2),
+      r.sent.map((c: RecordedCall) => c.body));
+    expect('/news 响应统计 sent=2/received=1', r.json.sent === 2 && r.json.received === 1, r.json);
+  }
+
+  // 无去重：同一 url 再推一次照常发送
+  {
+    const r = await postNews(newsPayload({ url: 'https://example.com/news/14' }));
+    expect('/news 同一 url 重复推送照常发送',
+      r.status === 200 && r.json.sent === 2 && r.sent.length === 2, r.json);
+  }
+
+  // 一次多篇（数组载荷）：逐篇处理，每篇推给全部订阅场景
+  {
+    const r = await postNews([
+      newsPayload({ url: 'https://example.com/news/15', title: '第二篇' }),
+      newsPayload({ url: 'https://example.com/news/15', title: '第二篇（同 url 重复）' }),
+    ]);
+    expect('/news 数组载荷逐篇处理（2 篇 × 2 场景）',
+      r.status === 200 && r.json.received === 2 && r.json.sent === 4 && r.sent.length === 4, r.json);
+  }
+
+  // content 缺失：用标题/摘要/原文链接兜底
+  {
+    const r = await postNews({ event: 'mc.news.new', title: '无正文新闻', url: 'https://example.com/news/16', summary: '只有摘要' });
+    const md = String(r.sent[0]?.body?.markdown?.content ?? '');
+    expect('/news content 缺失时兜底拼接 Markdown',
+      r.sent.length === 2 && md.indexOf('# 无正文新闻') === 0 && md.includes('只有摘要') && md.includes('https://example.com/news/16'), md);
+  }
+
+  // 非法 JSON / 空体
+  {
+    const bad = await postNews(null, { raw: 'not-json' });
+    expect('/news 非法 JSON 返回 400', bad.status === 400 && bad.sent.length === 0, bad);
+    const empty = await postNews(null, { raw: '' });
+    expect('/news 空体返回 400', empty.status === 400, empty);
+  }
+
+  // 关闭订阅：索引清空且不再推送
+  {
+    await runG('/news');
+    await runGroup('/news', 'g_news', 'ROBOT1.0_NEWSG2');
+    const subs = JSON.parse(kvMap.get('news:global:subs') || '[]');
+    expect('/news 两端关闭后订阅索引为空', subs.length === 0, subs);
+    const r = await postNews(newsPayload({ url: 'https://example.com/news/17' }));
+    expect('/news 无人订阅时不再推送', r.status === 200 && r.sent.length === 0 && r.json.sent === 0, r.json);
+  }
   disableMockKv();
 
   if (fail > 0) {

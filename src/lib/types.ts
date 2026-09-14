@@ -63,6 +63,8 @@ export interface Config {
   groupSceneLevel: number;
   /** SWUSTMC 题库 API Key（X-API-Key）；/question 使用 */
   swustmcApiKey: string;
+  /** 新闻推送鉴权密钥（SWUSTMC_NEWS）：POST /news 的 x-secret 头必须与之一致；为空则该端点拒绝所有推送 */
+  newsSecret: string;
   storage: Storage;
 }
 

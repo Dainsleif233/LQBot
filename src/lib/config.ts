@@ -34,6 +34,8 @@ export function createConfig(env: Record<string, string | undefined> | undefined
     groupSceneLevel,
     // SWUSTMC 题库 API Key（/question 抽题）
     swustmcApiKey: env.SWUSTMC_APIKEY || '',
+    // 新闻推送鉴权密钥（POST /news 校验 x-secret；未配置时端点 fail-closed，拒绝所有推送）
+    newsSecret: env.SWUSTMC_NEWS || '',
     // 持久化入口（命名空间 × 作用域）。KV 未绑定时 storage.available === false，相关功能自动跳过。
     storage: createStorage(rawKv),
   };
