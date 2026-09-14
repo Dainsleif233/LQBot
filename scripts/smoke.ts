@@ -186,7 +186,7 @@ function makeRequest(content: string, attachments?: MessageAttachment[]): Reques
   const d: any = { id: 'ROBOT1.0_SMOKE', content, author: { user_openid: 'u_test' } };
   if (attachments) d.attachments = attachments;
   const payload = { op: 0, t: 'C2C_MESSAGE_CREATE', d };
-  return new Request('http://localhost/webhook', {
+  return new Request('http://localhost/qbot', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -221,7 +221,7 @@ function makeQuoteRequest(opts: QuoteReqOpts): Request {
   if (opts.elements) d.msg_elements = opts.elements;
   if (opts.parallel) d.parallel_message = opts.parallel;
   const payload = { op: 0, t: isGroup ? 'GROUP_AT_MESSAGE_CREATE' : 'C2C_MESSAGE_CREATE', d };
-  return new Request('http://localhost/webhook', {
+  return new Request('http://localhost/qbot', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

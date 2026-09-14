@@ -156,10 +156,6 @@ async function dispatchQuote(
 export async function handleWebhook(context: EdgeContext): Promise<Response> {
   const { request, env, waitUntil } = context;
   const cfg = createConfig(env);
-  const method = request.method || 'GET';
-  if (method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'method not allowed' }), { status: 405, headers: jsonHeaders });
-  }
   const rawBody = await request.text();
   let payload: any;
   try { payload = JSON.parse(rawBody); } catch (e) {

@@ -11,9 +11,9 @@ LQBot：跑在 EdgeOne 边缘函数上的无服务器 QQ 官方机器人。接�
 ```text
 LQBot/
 ├── edge-functions/              # 仅对外暴露的接口
-│   └── webhook.ts               # POST /webhook 入口（onRequest）
+│   └── qbot.ts                  # POST /qbot 入口（onRequestPost）
 ├── src/                         # 框架内部模块（边缘构建打包进函数）
-│   ├── lib/
+│   ├── libs/
 │   │   ├── config.ts            # 运行时配置（从 env + globalThis.LQBOT 构建）
 │   │   ├── storage.ts           # KV 持久化封装（命名空间 × 作用域：global/group/user）
 │   │   ├── dedupe.ts            # 消息去重（窗口内 msg_id 汇总到单 key）
@@ -39,12 +39,12 @@ LQBot/
 
 ## 关键技术约定（改动前必读）
 1. Webhook 签名 = Ed25519（不是 HMAC）。地址校验 op=13 签 event_ts+plain_token；事件校验签 timestamp+body 对 X-Signature-Ed25519。
-   关键坑：EdgeOne 边缘运行时 WebCrypto 不支持 Ed25519（importKey/sign 均报 Param Invalid），因此 vendored 了 tweetnacl（src/lib/tweetnacl.js，公有领域、RFC8032）。**不要尝试改用 WebCrypto。** 种子派生与官方 Go 一致：secret 重复拼接到 ≥32 字节再截断。
+   关键坑：EdgeOne 边缘运行时 WebCrypto 不支持 Ed25519（importKey/sign 均报 Param Invalid），因此 vendored 了 tweetnacl（src/libs/tweetnacl.js，公有领域、RFC8032）。**不要尝试改用 WebCrypto。** 种子派生与官方 Go 一致：secret 重复拼接到 ≥32 字节再截断。
    事件验签默认**开启**（设 VERIFY_EVENT_SIGNATURE=false 才关闭）；验签密钥优先 WEBHOOK_SECRET、回退 APP_SECRET；时间戳（X-Signature-Timestamp）偏差 >10 分钟直接拒绝（防重放）；密钥为空时直接验签失败（不进入派生，避免死循环）。
 2. 源码是 TypeScript（.ts），但 import 语句一律用 .js 扩展名（NodeNext 规范），esbuild 会解析到对应的 .ts 文件。移动/新增模块时 import 仍写 .js 后缀。
 3. tsconfig 的 module 与 moduleResolution 必须同为 NodeNext。tweetnacl.js 无类型，靠 allowJs:true 被引用；**保持 vendored 原样，不要改成 .ts 或加强类型**。
-4. src/ 在 edge-functions/ 之外，但边缘构建（esbuild）会跟随相对 import 打包，已实测可用。edge-functions/ 只放对外接口。
-5. KV 是全局变量 **LQBOT**（globalThis.LQBOT），不在 context.env；控制台绑定时的「变量名」必须设为 LQBOT。统一走 src/lib/storage.ts，两级结构：**命名空间**（storage.infra 前缀 bot: 为跨模块基础设施；storage.ns('<模块>') 前缀 <模块>: 为业务数据）× **作用域**（.global 全局变量；.group(gid)/.user(uid)/.scene(ctx) 场景变量，按 openid 隔离）。key 形如 <ns>:global:<key> / <ns>:group:<gid>:<key> / <ns>:user:<uid>:<key>。未绑定时 available === false，读写自动跳过。
+4. src/ 在 edge-functions/ 之外，但边缘构建（esbuild）会跟随相对 import 打包，已实测可用。edge-functions/ 只放对外接口，且入口只导出 onRequestPost：非 POST 不匹配路由、不进函数，不要在 handler 里再判 request.method。
+5. KV 是全局变量 **LQBOT**（globalThis.LQBOT），不在 context.env；控制台绑定时的「变量名」必须设为 LQBOT。统一走 src/libs/storage.ts，两级结构：**命名空间**（storage.infra 前缀 bot: 为跨模块基础设施；storage.ns('<模块>') 前缀 <模块>: 为业务数据）× **作用域**（.global 全局变量；.group(gid)/.user(uid)/.scene(ctx) 场景变量，按 openid 隔离）。key 形如 <ns>:global:<key> / <ns>:group:<gid>:<key> / <ns>:user:<uid>:<key>。未绑定时 available === false，读写自动跳过。
 6. 命令处理**同步 await 后再返回** { op: 12 } 200（边缘运行时可能在返回 200 后立即冻结 isolate，waitUntil 后台跑会丢失回复与日志；被动回复窗口群 5 分钟 / 单聊 60 分钟，同步处理完全来得及）。被动回复携带**消息 id 作 msg_id**（取自 d.id，形如 ROBOT1.0_...），**不是 event_id**（event.id 是事件 id 形如 C2C_MESSAGE_CREATE:...，被动回复不认）。
 7. QQ API 返回结构（尤其群成员 role/nick）官方文档未完整开放，相关代码已做兼容，实测字段不同需校准。
 
@@ -96,14 +96,14 @@ Skills 是一套社区开放规范，以结构化 Markdown 为 AI Agent 注入�
 
 ## 命令系统（框架侧）
 - 触发：群聊 @机器人 消息、私聊消息。格式 /<command> [args]，解析在 registry.ts（剥离 @机器人 前缀、小写匹配、含别名）。
-- 命令编写：src/lib/define.ts 的 defineCommand（export default defineCommand({...})；aliases/scenes 有默认值，分组节点可省略 handler 自动回用法）。命令注册表 src/lib/registry.ts 的 commands 数组是唯一数据源（register.ts 也读它）。详见 docs/PLUGIN-DEV.md。
+- 命令编写：src/libs/define.ts 的 defineCommand（export default defineCommand({...})；aliases/scenes 有默认值，分组节点可省略 handler 自动回用法）。命令注册表 src/libs/registry.ts 的 commands 数组是唯一数据源（register.ts 也读它）。详见 docs/PLUGIN-DEV.md。
 - 子命令：命令可声明 subcommands（如 /game add），子命令可单独设置 minLevel 覆盖主命令；命中时 ctx.sub 为子命令名、ctx.args 不含子命令名，权限按子命令判断（指令面板暂不注册子命令）。详见 docs/PLUGIN-DEV.md。
 - handler 接收的 ctx 包含：args, sub, attachments, raw, original, scene, userOpenid, memberOpenid, groupOpenid, nick, level, memberInfo, event, messageId, cfg, qq, reply, replyMarkdown, replyMedia, deny。
 - 持久化：命令经 ctx.cfg.storage 访问 KV（两级：命名空间 × 作用域，见关键技术约定 5）；用法与示例见 docs/PLUGIN-DEV.md。
 - 权限按挡位比较（level >= minLevel 通过；否则调用 ctx.deny() 回复）。反馈由 reply 按场景被动发送。
 
 ## 验证
-- op=13 地址校验：POST {"d":{"plain_token":"Arq0D5A61EgUu4OxUvOp","event_ts":"1725442341"},"op":13} 到 /webhook，应返回固定签名
+- op=13 地址校验：POST {"d":{"plain_token":"Arq0D5A61EgUu4OxUvOp","event_ts":"1725442341"},"op":13} 到 /qbot，应返回固定签名
   87befc99c42c651b3aac0278e71ada338433ae26fcb24307bdc5ad38c1adc2d01bcfcadc0842edac85e85205028a1132afe09280305f13aa6909ffc2d652c706（MATCH=True）。这是验证签名/种子派生正确的最快方法。
 - 任何改动后跑一次 edgeone makers build 确认编译通过。
 

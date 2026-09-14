@@ -19,7 +19,7 @@ LQBot —— Serverless QQ 官方机器人（EdgeOne 边缘函数）会话总结
 ============================================================
 LQBot/
   edge-functions/            # 仅对外暴露的接口
-    webhook.ts                # POST /webhook 入口（onRequest）
+    qbot.ts                   # POST /qbot 入口（onRequestPost）
   src/                       # 所有内部模块（被边缘构建打包进函数）
     libs/
       config.ts              # 从 env 构建运行时配置
@@ -167,7 +167,7 @@ LQBot/
    npm run register
    把 src/commands 下命令（含别名）同步为 QQ 指令面板（等级≥3 仅私聊按用户限定；先快照再重建、出错回滚）。
 6. QQ 开放平台「开发设置 → 回调地址」填写：
-   https://<你的边缘函数域名>/webhook
+   https://<你的边缘函数域名>/qbot
    平台先发 op=13 地址校验，本服务自动签名通过。
 
 ============================================================
